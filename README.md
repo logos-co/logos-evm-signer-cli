@@ -63,6 +63,10 @@ The two lists are the keystore's and are never merged: the *claim* is the reques
 account of what it wants and is worth nothing as evidence; the *render* is what is actually
 signed, plus the commitment over it. Read the second one.
 
+Driving the wallet itself headlessly — `send`, `send_status`, the receipt sweep — is covered in
+the [logos-eth-wallet-backend README](https://github.com/logos-co/logos-eth-wallet-backend#headless-operation-logosctl),
+*Headless operation*.
+
 ## Methods
 
 | Method | Does |
