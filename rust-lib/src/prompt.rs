@@ -37,10 +37,10 @@ pub fn render(r: &Rendered) -> String {
     out.extend(r.render_lines.iter().map(|l| format!("  {l}")));
     out.push(THIN.into());
     out.push(format!(
-        "approve:  logosctl call signer_cli approve {} {} @/path/to/pwfile",
+        "approve:  logosctl call evm_signer_cli approve {} {} @/path/to/pwfile",
         r.handle, r.bundle_id
     ));
-    out.push(format!("reject:   logosctl call signer_cli reject {}", r.handle));
+    out.push(format!("reject:   logosctl call evm_signer_cli reject {}", r.handle));
     out.push(RULE.into());
     out.join("\n")
 }
@@ -115,8 +115,8 @@ mod tests {
         let account = text.find("  Account: 0xf39F").unwrap();
         assert!(claim < purpose && purpose < signed && signed < account);
         assert!(text.contains("Requested by: eth_wallet_backend"));
-        assert!(text.contains("approve:  logosctl call signer_cli approve ksh_abc 8c1e @/path/to/pwfile"));
-        assert!(text.ends_with(&format!("reject:   logosctl call signer_cli reject ksh_abc\n{RULE}")));
+        assert!(text.contains("approve:  logosctl call evm_signer_cli approve ksh_abc 8c1e @/path/to/pwfile"));
+        assert!(text.ends_with(&format!("reject:   logosctl call evm_signer_cli reject ksh_abc\n{RULE}")));
     }
 
     #[test]
@@ -146,24 +146,24 @@ mod tests {
 
     #[test]
     fn the_hint_is_total_safe() {
-        let id = json!({ "approvers": ["signer_ui"], "custodians": ["keystore_ui"] });
-        let hint = configure_hint(&id, "signer_cli", "approvers");
+        let id = json!({ "approvers": ["evm_signer_ui"], "custodians": ["evm_keystore_ui"] });
+        let hint = configure_hint(&id, "evm_signer_cli", "approvers");
         assert_eq!(
             hint,
-            r#"logosctl call keystore_module configure '{"approvers":["signer_ui","signer_cli"],"custodians":["keystore_ui"]}'"#
+            r#"logosctl call keystore_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_keystore_ui"]}'"#
         );
-        let already = json!({ "approvers": ["signer_ui", "signer_cli"], "custodians": [] });
-        assert!(configure_hint(&already, "signer_cli", "approvers").contains(r#""approvers":["signer_ui","signer_cli"]"#));
+        let already = json!({ "approvers": ["evm_signer_ui", "evm_signer_cli"], "custodians": [] });
+        assert!(configure_hint(&already, "evm_signer_cli", "approvers").contains(r#""approvers":["evm_signer_ui","evm_signer_cli"]"#));
         let empty = json!({ "ok": true });
-        assert!(configure_hint(&empty, "signer_cli", "approvers").contains(r#"{"approvers":["signer_cli"],"custodians":[]}"#));
+        assert!(configure_hint(&empty, "evm_signer_cli", "approvers").contains(r#"{"approvers":["evm_signer_cli"],"custodians":[]}"#));
     }
 
     #[test]
     fn holds_reads_the_role_list() {
-        let id = json!({ "approvers": ["signer_ui", "signer_cli"], "custodians": ["keystore_ui"] });
-        assert!(holds(&id, "signer_cli", "approvers"));
-        assert!(!holds(&id, "signer_cli", "custodians"));
-        assert!(!holds(&json!({}), "signer_cli", "approvers"));
+        let id = json!({ "approvers": ["evm_signer_ui", "evm_signer_cli"], "custodians": ["evm_keystore_ui"] });
+        assert!(holds(&id, "evm_signer_cli", "approvers"));
+        assert!(!holds(&id, "evm_signer_cli", "custodians"));
+        assert!(!holds(&json!({}), "evm_signer_cli", "approvers"));
     }
 
     #[test]

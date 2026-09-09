@@ -1,17 +1,17 @@
 {
-  "name": "signer_cli_probe",
+  "name": "evm_signer_cli_probe",
   "version": "1.0.0",
   "description": "Doc-test fixture: a Tier B requester that is also the custodian. Imports a known key, asks the keystore for a signature on demand, and reports what came of it.",
   "author": "Logos Core Team",
   "type": "core",
   "interface": "cdylib",
   "category": "test",
-  "main": "signer_cli_probe_plugin",
+  "main": "evm_signer_cli_probe_plugin",
   "dependencies": ["keystore_module"],
   "include": [],
   "capabilities": [],
   "codegen": {
-    "rust": { "crate": "rust-lib", "trait": "SignerCliProbeModule", "source": "src/glue.rs" }
+    "rust": { "crate": "rust-lib", "trait": "EvmSignerCliProbeModule", "source": "src/glue.rs" }
   },
   "nix": {
     "external_libraries": [],

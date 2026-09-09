@@ -1,12 +1,12 @@
-# signer_cli
+# evm_signer_cli
 
-The headless approver for `keystore_module` — what `signer_ui` is in Basecamp, for a
+The headless approver for `keystore_module` — what `evm_signer_ui` is in Basecamp, for a
 `logosctl` daemon that has no window to show anything in.
 
 `keystore_module` signs nothing without a human. A wallet *asks* (`request_approval`), and
 only a configured **approver** may claim the request, read what the keystore says will be
 signed, and answer with the vault password. `logosctl call keystore_module approve …` is
-refused on purpose: the CLI is the host anchor, not a named module. `signer_cli` is a named
+refused on purpose: the CLI is the host anchor, not a named module. `evm_signer_cli` is a named
 module. It holds the role, shows every request over the event plane, and takes the decision
 over method calls. Nothing else changes: the keystore still authors every line the human
 reads, still checks the bundle id they echo back, and still hands the signatures only to the
@@ -16,18 +16,18 @@ requester that holds the receipt.
 
 ```bash
 # once per daemon — configure is TOTAL, so restate the GUI surfaces alongside
-logosctl call keystore_module configure '{"approvers":["signer_ui","signer_cli"],"custodians":["keystore_ui","keystore_cli"]}'
-logosctl module load signer_cli
+logosctl call keystore_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_keystore_ui","evm_keystore_cli"]}'
+logosctl module load evm_signer_cli
 ```
 
 Terminal 1, for as long as you are on duty:
 
 ```bash
-logosctl watch signer_cli --event prompt      # or without --event, to see settled/queue_changed too
+logosctl watch evm_signer_cli --event prompt      # or without --event, to see settled/queue_changed too
 ```
 
 ```text
-[12:00:01] signer_cli :: prompt
+[12:00:01] evm_signer_cli :: prompt
   arg0: ksh_3f2a…
   arg1:
 ================================================================
@@ -46,8 +46,8 @@ What will be signed (the keystore's own words):
         Value: 0x2386f26fc10000 (10000000000000000)
         …
 ----------------------------------------------------------------
-approve:  logosctl call signer_cli approve ksh_3f2a… 8c1e… @/path/to/pwfile
-reject:   logosctl call signer_cli reject ksh_3f2a…
+approve:  logosctl call evm_signer_cli approve ksh_3f2a… 8c1e… @/path/to/pwfile
+reject:   logosctl call evm_signer_cli reject ksh_3f2a…
 ================================================================
 ```
 
@@ -55,7 +55,7 @@ Terminal 2, when you have read it:
 
 ```bash
 umask 077; printf '%s\n' 'vault password' > /run/user/501/pw
-logosctl call signer_cli approve ksh_3f2a… 8c1e… @/run/user/501/pw
+logosctl call evm_signer_cli approve ksh_3f2a… 8c1e… @/run/user/501/pw
 # → {"ok":true,"handle":"ksh_3f2a…","signed_count":1}
 ```
 
@@ -88,12 +88,12 @@ approver causes signatures to exist and never receives them.
 | `settled(handle, state)` | `approved` / `rejected`, relayed from the keystore; `gone` when the poll finds a request vanished — the keystore never announces a cancelled or expired one |
 | `queue_changed(count)` | how many are waiting |
 
-`signer_cli` claims the head of the queue the moment it is offered, as `signer_ui` does:
+`evm_signer_cli` claims the head of the queue the moment it is offered, as `evm_signer_ui` does:
 claiming means "this approver has it on screen", not "the human decided", and an
 *unclaimed* offer is swept after sixty seconds while a claimed one waits for the human
 indefinitely. With two approvers loaded it prefers whatever the other one already has on
 screen, so the two converge rather than displace each other; an explicit `show <other>`
-does displace, and `signer_ui` never re-claims, so its Approve fails until its human
+does displace, and `evm_signer_ui` never re-claims, so its Approve fails until its human
 dismisses.
 
 ## Arguments
@@ -111,7 +111,7 @@ The daemon logs only the argument count of a call, never a value; this module ne
 emits or stores a password.
 
 Note that the daemon publishes every method **reply** as a `__logos_call_complete__` event on
-the module's channel, so a bare `logosctl watch signer_cli` also shows call results. Nothing
+the module's channel, so a bare `logosctl watch evm_signer_cli` also shows call results. Nothing
 this module returns is secret; `--event prompt` keeps the stream to what a human needs.
 
 ## What is deliberately absent
@@ -122,14 +122,14 @@ this module returns is secret; `--event prompt` keeps the stream to what a human
 - **No self-enrolment.** `configure` is ungated and total; a module naming itself would be
   the exposure the keystore's spec defers, and two doing so would race. The operator names
   the roles; `status` says what to run.
-- **No decoded calldata yet.** `signer_ui` adds an offline interpretation of the calldata
+- **No decoded calldata yet.** `evm_signer_ui` adds an offline interpretation of the calldata
   in the render lines (logos-tx-decoder); linking it into a Rust module is a follow-up.
 
 ## Build and test
 
 ```bash
 nix build .#default            # the plugin
-nix build .#install            # modules/signer_cli/ for a logosctl session
+nix build .#install            # modules/evm_signer_cli/ for a logosctl session
 nix build .#lgx-portable       # an installable .lgx (the -dev variant a daemon refuses is .#lgx)
 (cd rust-lib && cargo test --no-default-features)   # the Logos-free helpers
 ./doctests/run.sh              # the headless spec, end to end against a real daemon

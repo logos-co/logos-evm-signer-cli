@@ -1,5 +1,5 @@
 {
-  "name": "signer_cli",
+  "name": "evm_signer_cli",
   "version": "0.1.0",
   "description": "Headless approver for keystore_module: shows what a module asked to sign, in the keystore's own words, over `logosctl watch`, and takes the decision over `logosctl call`.",
   "author": "Logos Core Team",
@@ -7,12 +7,12 @@
   "interface": "cdylib",
   "concurrency": "multi",
   "category": "wallet",
-  "main": "signer_cli_plugin",
+  "main": "evm_signer_cli_plugin",
   "dependencies": ["keystore_module"],
   "include": [],
   "capabilities": [],
   "codegen": {
-    "rust": { "crate": "rust-lib", "trait": "SignerCliModule", "source": "src/glue.rs" }
+    "rust": { "crate": "rust-lib", "trait": "EvmSignerCliModule", "source": "src/glue.rs" }
   },
   "nix": {
     "external_libraries": [],

@@ -1,5 +1,5 @@
 {
-  description = "signer_cli — the headless approver for keystore_module, driven over logosctl.";
+  description = "evm_signer_cli — the headless approver for keystore_module, driven over logosctl.";
 
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";

@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "evm_signer_cli"
+version = "1.0.0"
+dependencies = [
+ "logos-rust-sdk",
+ "serde_json",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -81,14 +89,6 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
-]
-
-[[package]]
-name = "signer_cli"
-version = "1.0.0"
-dependencies = [
- "logos-rust-sdk",
- "serde_json",
 ]
 
 [[package]]

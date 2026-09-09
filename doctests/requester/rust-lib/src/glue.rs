@@ -1,5 +1,5 @@
-//! The requester half of the signer_cli doc-test. It can ASK and can never APPROVE:
-//! every signature it reports exists because a human typed `logosctl call signer_cli
+//! The requester half of the evm_signer_cli doc-test. It can ASK and can never APPROVE:
+//! every signature it reports exists because a human typed `logosctl call evm_signer_cli
 //! approve …`. Method-driven, so the spec controls every step.
 
 use serde_json::{json, Value};
@@ -10,7 +10,7 @@ type Receipts = std::sync::Mutex<std::collections::HashMap<String, String>>;
 const TEST_KEY: &str = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const VAULT_PASSWORD: &str = "doctest-pw";
 
-pub trait SignerCliProbeModule: Send + 'static {
+pub trait EvmSignerCliProbeModule: Send + 'static {
     /// Import the test key (Tier D — this fixture must be the custodian). `{ ok, address }`.
     fn setup(&mut self) -> String;
     /// Ask for a signature over `message`. `{ ok, handle }`; the receipt stays here.
@@ -25,7 +25,7 @@ pub trait SignerCliProbeModule: Send + 'static {
 include!(concat!(env!("CARGO_MANIFEST_DIR"), "/generated/provider_gen.rs"));
 
 #[derive(Default)]
-struct SignerCliProbeModuleImpl {
+struct EvmSignerCliProbeModuleImpl {
     receipts: Receipts,
 }
 
@@ -46,7 +46,7 @@ fn text(v: &Value, key: &str) -> String {
     v.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
 }
 
-impl SignerCliProbeModule for SignerCliProbeModuleImpl {
+impl EvmSignerCliProbeModule for EvmSignerCliProbeModuleImpl {
     fn setup(&mut self) -> String {
         match parse(modules().keystore_module.import_private_key(TEST_KEY, VAULT_PASSWORD)) {
             Ok(v) => json!({ "ok": true, "address": text(&v, "address") }).to_string(),
@@ -111,5 +111,5 @@ impl SignerCliProbeModule for SignerCliProbeModuleImpl {
 
 #[no_mangle]
 pub extern "Rust" fn logos_module_install() {
-    install::<SignerCliProbeModuleImpl>();
+    install::<EvmSignerCliProbeModuleImpl>();
 }

@@ -1,4 +1,4 @@
-//! signer_cli — the headless approver for `keystore_module`.
+//! evm_signer_cli — the headless approver for `keystore_module`.
 
 pub mod prompt;
 

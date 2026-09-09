@@ -1,4 +1,4 @@
-name: signer-cli Doc-Tests
+name: evm-signer-cli Doc-Tests
 
 # Runs this repo's executable doc-test(s) end-to-end via the shared `doctest`
 # CLI (github:logos-co/logos-doctest) on every PR and push to main, publishes a
@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   doctests:
-    name: signer-cli doc-tests (${{ matrix.os }})
+    name: evm-signer-cli doc-tests (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -74,7 +74,7 @@ jobs:
       - name: Run doc-tests
         run: |
           nix run github:logos-co/logos-doctest -- run \
-            doctests/signer-cli-headless.test.yaml \
+            doctests/evm-signer-cli-headless.test.yaml \
             --verbose \
             --continue-on-fail \
             --release-for logos-evm-signer-cli=${{ steps.commit.outputs.sha }} \

@@ -1,5 +1,5 @@
 [package]
-name = "signer_cli_probe"
+name = "evm_signer_cli_probe"
 version = "1.0.0"
 edition = "2021"
 rust-version = "1.89"

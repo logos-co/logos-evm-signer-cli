@@ -1,5 +1,5 @@
 {
-  description = "signer_cli_probe — doc-test fixture: the module that asks for a signature.";
+  description = "evm_signer_cli_probe — doc-test fixture: the module that asks for a signature.";
 
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";

@@ -1,24 +1,24 @@
-name: "Approving Signatures Headlessly with signer_cli"
-output: signer-cli-headless.md
+name: "Approving Signatures Headlessly with evm_signer_cli"
+output: evm-signer-cli-headless.md
 release: ""
 
 intro: |
   `keystore_module` signs nothing without a human. A module *asks* (`request_approval`),
   and only a configured **approver** may claim the request, read what the keystore says
   will be signed, and answer with the vault password. In Basecamp that approver is
-  `signer_ui`. On a headless `logosctl` daemon there is no window to show anything in —
+  `evm_signer_ui`. On a headless `logosctl` daemon there is no window to show anything in —
   and `logosctl call keystore_module approve …` is refused, deliberately, because the
   CLI is the host anchor and not a named module.
 
-  `signer_cli` is the approver for that world. It holds the role the way `signer_ui`
-  does, shows every request over the event plane (`logosctl watch signer_cli`), and takes
-  the decision over method calls (`logosctl call signer_cli approve <handle> <bundle_id>
+  `evm_signer_cli` is the approver for that world. It holds the role the way `evm_signer_ui`
+  does, shows every request over the event plane (`logosctl watch evm_signer_cli`), and takes
+  the decision over method calls (`logosctl call evm_signer_cli approve <handle> <bundle_id>
   @pwfile`). This doc-test drives the whole cycle against a real daemon, including every
   refusal the design promises.
 
 what_you_learn:
   - Why the CLI cannot approve a signature on its own, and how a named module can
-  - How to name `signer_cli` an approver without stripping `signer_ui`
+  - How to name `evm_signer_cli` an approver without stripping `evm_signer_ui`
   - How a request appears on `logosctl watch`, in the keystore's own words
   - How to approve with the handle and the bundle id you read, and why both are checked
   - What is refused: a wrong bundle id, a request that was never shown, a wrong password
@@ -52,7 +52,7 @@ sections:
     step: true
     text: |
       Three modules take part. `keystore_module` holds the keys and the approval queue.
-      `signer_cli` is the approver under test. `signer_cli_probe` is a doc-test fixture
+      `evm_signer_cli` is the approver under test. `evm_signer_cli_probe` is a doc-test fixture
       standing in for a wallet: a Tier B **requester** that can ask for a signature but
       can never approve one — and, for this run only, the **custodian** that imports the
       test key. Each is dropped straight into the session's `modules/` directory, next to
@@ -62,18 +62,18 @@ sections:
         run: 'nix build "github:logos-co/logos-evm-keystore-module#install" --out-link ./result-keystore'
         code_block: "nix build 'github:logos-co/logos-evm-keystore-module#install' --out-link ./result-keystore"
         check_file: "result-keystore/modules/keystore_module/manifest.json"
-      - title: "Build signer_cli"
+      - title: "Build evm_signer_cli"
         run: 'nix build "github:logos-co/logos-evm-signer-cli{release}#install" --out-link ./result-signer'
         code_block: |
           # From inside the clone this is simply: nix build '.#install'
           nix build 'github:logos-co/logos-evm-signer-cli#install' --out-link ./result-signer
-        check_file: "result-signer/modules/signer_cli/manifest.json"
+        check_file: "result-signer/modules/evm_signer_cli/manifest.json"
       - title: "Build the requester fixture"
         run: 'nix build "github:logos-co/logos-evm-signer-cli{release}?dir=doctests/requester#install" --out-link ./result-probe'
         code_block: |
           # From inside the clone: nix build './doctests/requester#install'
           nix build 'github:logos-co/logos-evm-signer-cli?dir=doctests/requester#install' --out-link ./result-probe
-        check_file: "result-probe/modules/signer_cli_probe/manifest.json"
+        check_file: "result-probe/modules/evm_signer_cli_probe/manifest.json"
       - title: "Lay out the session"
         run: |
           mkdir -p session/modules
@@ -87,8 +87,8 @@ sections:
           cp -RL ./result-*/modules/. ./session/modules/
         expect_contains:
           - "keystore_module"
-          - "signer_cli"
-          - "signer_cli_probe"
+          - "evm_signer_cli"
+          - "evm_signer_cli_probe"
 
   - title: "Start the daemon and load the modules"
     step: true
@@ -102,16 +102,16 @@ sections:
         code_block: "logosctl module load keystore_module"
         expect_contains:
           - "keystore_module"
-      - title: "Load signer_cli"
-        run: "./logos/bin/logosctl --config-dir ./session module load signer_cli"
-        code_block: "logosctl module load signer_cli"
+      - title: "Load evm_signer_cli"
+        run: "./logos/bin/logosctl --config-dir ./session module load evm_signer_cli"
+        code_block: "logosctl module load evm_signer_cli"
         expect_contains:
-          - "signer_cli"
+          - "evm_signer_cli"
       - title: "Load the requester fixture"
-        run: "./logos/bin/logosctl --config-dir ./session module load signer_cli_probe"
-        code_block: "logosctl module load signer_cli_probe"
+        run: "./logos/bin/logosctl --config-dir ./session module load evm_signer_cli_probe"
+        code_block: "logosctl module load evm_signer_cli_probe"
         expect_contains:
-          - "signer_cli_probe"
+          - "evm_signer_cli_probe"
       - run: "sleep 2"
 
   - title: "What the CLI cannot do"
@@ -133,15 +133,15 @@ sections:
         code_block: "logosctl call keystore_module import_private_key <privkey> str:pw"
         expect_contains:
           - "not authorized"
-      - title: "signer_cli is not an approver yet either"
+      - title: "evm_signer_cli is not an approver yet either"
         text: |
           Until something calls `configure`, the keystore's built-in defaults stand:
-          `signer_ui` approves, `keystore_ui` mutates. `status` says so, and names the
+          `evm_signer_ui` approves, `evm_keystore_ui` mutates. `status` says so, and names the
           exact command that fixes it — built from the names currently in force, because
-          `configure` is **total**: a document that names only `signer_cli` would strip
-          `signer_ui`.
-        run: "./logos/bin/logosctl --config-dir ./session call signer_cli status --human"
-        code_block: "logosctl call signer_cli status"
+          `configure` is **total**: a document that names only `evm_signer_cli` would strip
+          `evm_signer_ui`.
+        run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli status --human"
+        code_block: "logosctl call evm_signer_cli status"
         expect_contains:
           - '"held":false'
           - "logosctl call keystore_module configure"
@@ -151,24 +151,24 @@ sections:
     steps:
       - title: "Configure both roles in one call"
         run: |
-          ./logos/bin/logosctl --config-dir ./session call keystore_module configure '{"approvers":["signer_ui","signer_cli"],"custodians":["signer_cli_probe"]}' --human
+          ./logos/bin/logosctl --config-dir ./session call keystore_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_signer_cli_probe"]}' --human
         code_block: |
-          logosctl call keystore_module configure '{"approvers":["signer_ui","signer_cli"],"custodians":["signer_cli_probe"]}'
+          logosctl call keystore_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_signer_cli_probe"]}'
         expect_contains:
-          - '"signer_cli"'
-          - '"signer_cli_probe"'
-      - title: "signer_cli now holds the role"
-        run: "./logos/bin/logosctl --config-dir ./session call signer_cli status --human"
-        code_block: "logosctl call signer_cli status"
+          - '"evm_signer_cli"'
+          - '"evm_signer_cli_probe"'
+      - title: "evm_signer_cli now holds the role"
+        run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli status --human"
+        code_block: "logosctl call evm_signer_cli status"
         expect_contains:
           - '"held":true'
-          - '"identity":"signer_cli"'
+          - '"identity":"evm_signer_cli"'
       - title: "Import the test key"
         text: |
           The fixture imports Foundry's well-known account 0 under the vault password
           `doctest-pw`. A Tier D call, admitted only because the document above named it.
-        run: "./logos/bin/logosctl --config-dir ./session call signer_cli_probe setup --human"
-        code_block: "logosctl call signer_cli_probe setup"
+        run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe setup --human"
+        code_block: "logosctl call evm_signer_cli_probe setup"
         expect_contains:
           - "f39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 
@@ -179,42 +179,42 @@ sections:
       operator is on duty. Here it runs in the background and writes to a file.
       It is armed **before** the request is made: the event plane buffers nothing.
     steps:
-      - title: "Start watching signer_cli"
-        run: "sh -c './logos/bin/logosctl --config-dir ./session watch signer_cli --json > watch.jsonl 2>&1 & echo $! > watch.pid'"
-        code_block: "logosctl watch signer_cli        # in its own terminal"
+      - title: "Start watching evm_signer_cli"
+        run: "sh -c './logos/bin/logosctl --config-dir ./session watch evm_signer_cli --json > watch.jsonl 2>&1 & echo $! > watch.pid'"
+        code_block: "logosctl watch evm_signer_cli        # in its own terminal"
       - run: "sleep 2"
       - title: "The wallet asks for a signature"
-        run: "./logos/bin/logosctl --config-dir ./session call signer_cli_probe request str:hello-logos --human | tee request.json"
-        code_block: "logosctl call signer_cli_probe request str:hello-logos"
+        run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe request str:hello-logos --human | tee request.json"
+        code_block: "logosctl call evm_signer_cli_probe request str:hello-logos"
         expect_contains:
           - '"handle":"ksh_'
       - run: "sleep 3"
       - title: "The prompt, as the watcher saw it"
         text: |
-          `signer_cli` claimed the request the moment it was offered — claiming means
+          `evm_signer_cli` claimed the request the moment it was offered — claiming means
           "this approver has it on screen", not "the human decided" — and published the
           keystore's two lists, kept apart: what the requester *claims* this is for, and
-          what will actually be signed. Nothing here is written by `signer_cli`; the lines
+          what will actually be signed. Nothing here is written by `evm_signer_cli`; the lines
           are the keystore's, verbatim. The last two lines are the commands to type.
         run: "cat watch.jsonl"
         code_block: "# the watcher's terminal"
         expect_contains:
           - '"event":"prompt"'
-          - "Requested by: signer_cli_probe"
+          - "Requested by: evm_signer_cli_probe"
           - "claimed by the requester"
           - "Commitment:"
-          - "approve:  logosctl call signer_cli approve ksh_"
+          - "approve:  logosctl call evm_signer_cli approve ksh_"
           - '"event":"queue_changed"'
       - title: "The queue agrees"
-        run: "./logos/bin/logosctl --config-dir ./session call signer_cli list --human"
-        code_block: "logosctl call signer_cli list"
+        run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli list --human"
+        code_block: "logosctl call evm_signer_cli list"
         expect_contains:
           - '"state":"rendered"'
       - title: "Note the handle and the bundle id"
         run: |
-          ./logos/bin/logosctl --config-dir ./session call signer_cli status --human \
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli status --human \
             | python3 -c 'import sys,json; r=json.load(sys.stdin)["rendered"]; open("handle.txt","w").write(r["handle"]); open("bundle.txt","w").write(r["bundle_id"]); print(r["handle"], r["bundle_id"])'
-        code_block: "logosctl call signer_cli status"
+        code_block: "logosctl call evm_signer_cli status"
         check_file: "bundle.txt"
 
   - title: "What is refused"
@@ -229,14 +229,14 @@ sections:
           id is 64 hex characters and is safe as written.)
         run: |
           echo doctest-pw > pw.txt
-          ./logos/bin/logosctl --config-dir ./session call signer_cli approve "$(cat handle.txt)" str:0000000000000000000000000000000000000000000000000000000000000000 @pw.txt --human || true
-        code_block: "logosctl call signer_cli approve <handle> str:0000…0000 @pw.txt"
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli approve "$(cat handle.txt)" str:0000000000000000000000000000000000000000000000000000000000000000 @pw.txt --human || true
+        code_block: "logosctl call evm_signer_cli approve <handle> str:0000…0000 @pw.txt"
         expect_contains:
           - '"ok":false'
           - "bundle_id does not match"
       - title: "A request that was never shown"
-        run: "./logos/bin/logosctl --config-dir ./session call signer_cli approve ksh_deadbeef \"$(cat bundle.txt)\" @pw.txt --human || true"
-        code_block: "logosctl call signer_cli approve ksh_deadbeef <bundle_id> @pw.txt"
+        run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli approve ksh_deadbeef \"$(cat bundle.txt)\" @pw.txt --human || true"
+        code_block: "logosctl call evm_signer_cli approve ksh_deadbeef <bundle_id> @pw.txt"
         expect_contains:
           - '"ok":false'
           - "not the request on screen"
@@ -246,10 +246,10 @@ sections:
           screen, so the operator simply retypes.
         run: |
           echo not-the-password > bad.txt
-          ./logos/bin/logosctl --config-dir ./session call signer_cli approve "$(cat handle.txt)" "$(cat bundle.txt)" @bad.txt --human || true
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli approve "$(cat handle.txt)" "$(cat bundle.txt)" @bad.txt --human || true
           echo '# --- still on screen ---'
-          ./logos/bin/logosctl --config-dir ./session call signer_cli status --human
-        code_block: "logosctl call signer_cli approve <handle> <bundle_id> @bad.txt"
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli status --human
+        code_block: "logosctl call evm_signer_cli approve <handle> <bundle_id> @bad.txt"
         expect_contains:
           - "approval failed"
           - '"rendered":{"bundle_id":"'
@@ -257,20 +257,20 @@ sections:
   - title: "Approve"
     step: true
     text: |
-      The password file was written with `echo`, so it ends in a newline; `signer_cli`
+      The password file was written with `echo`, so it ends in a newline; `evm_signer_cli`
       strips exactly one, the `--password-stdin` convention. The reply is a **count**:
       the approver causes a signature to exist and never receives it. Only the requester
       can collect it, with the receipt it was handed when it asked.
     steps:
       - title: "The human says yes"
-        run: "./logos/bin/logosctl --config-dir ./session call signer_cli approve \"$(cat handle.txt)\" \"$(cat bundle.txt)\" @pw.txt --human"
-        code_block: "logosctl call signer_cli approve <handle> <bundle_id> @pw.txt"
+        run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli approve \"$(cat handle.txt)\" \"$(cat bundle.txt)\" @pw.txt --human"
+        code_block: "logosctl call evm_signer_cli approve <handle> <bundle_id> @pw.txt"
         expect_contains:
           - '"ok":true'
           - '"signed_count":2'
       - title: "The requester collects its signatures"
-        run: "./logos/bin/logosctl --config-dir ./session call signer_cli_probe outcome \"$(cat handle.txt)\" --human"
-        code_block: "logosctl call signer_cli_probe outcome <handle>"
+        run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe outcome \"$(cat handle.txt)\" --human"
+        code_block: "logosctl call evm_signer_cli_probe outcome <handle>"
         expect_contains:
           - '"reason":"approved"'
           - '"signed":["0x'
@@ -286,14 +286,14 @@ sections:
     steps:
       - title: "The human says no"
         run: |
-          ./logos/bin/logosctl --config-dir ./session call signer_cli_probe request str:second --human \
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe request str:second --human \
             | python3 -c 'import sys,json; open("h2.txt","w").write(json.load(sys.stdin)["handle"])'
           sleep 2
-          ./logos/bin/logosctl --config-dir ./session call signer_cli reject "$(cat h2.txt)" --human
-          ./logos/bin/logosctl --config-dir ./session call signer_cli_probe outcome "$(cat h2.txt)" --human
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli reject "$(cat h2.txt)" --human
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe outcome "$(cat h2.txt)" --human
         code_block: |
-          logosctl call signer_cli reject <handle>
-          logosctl call signer_cli_probe outcome <handle>
+          logosctl call evm_signer_cli reject <handle>
+          logosctl call evm_signer_cli_probe outcome <handle>
         expect_contains:
           - '"reason":"rejected"'
       - title: "The requester gives up"
@@ -301,36 +301,36 @@ sections:
           A cancelled request is the one ending the keystore never announces. The poll
           notices it has left the queue and reports it as `gone`.
         run: |
-          ./logos/bin/logosctl --config-dir ./session call signer_cli_probe request str:third --human \
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe request str:third --human \
             | python3 -c 'import sys,json; open("h3.txt","w").write(json.load(sys.stdin)["handle"])'
           sleep 2
-          ./logos/bin/logosctl --config-dir ./session call signer_cli_probe cancel "$(cat h3.txt)"
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe cancel "$(cat h3.txt)"
           sleep 3
           cat watch.jsonl
-        code_block: "logosctl call signer_cli_probe cancel <handle>"
+        code_block: "logosctl call evm_signer_cli_probe cancel <handle>"
         expect_contains:
           - '"arg1":"rejected"'
           - '"arg1":"gone"'
       - title: "Two waiting: pick one explicitly"
         text: |
-          With two requests queued, `signer_cli` shows the first. `show` claims another;
+          With two requests queued, `evm_signer_cli` shows the first. `show` claims another;
           the keystore keeps at most one request rendered, so the first goes back to
           `offered`. That single rendered record is what binds the text a human read to
           the approval that follows.
         run: |
-          ./logos/bin/logosctl --config-dir ./session call signer_cli_probe request str:A --human \
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe request str:A --human \
             | python3 -c 'import sys,json; open("hA.txt","w").write(json.load(sys.stdin)["handle"])'
-          ./logos/bin/logosctl --config-dir ./session call signer_cli_probe request str:B --human \
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe request str:B --human \
             | python3 -c 'import sys,json; open("hB.txt","w").write(json.load(sys.stdin)["handle"])'
           sleep 2
-          ./logos/bin/logosctl --config-dir ./session call signer_cli show "$(cat hB.txt)" --human
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli show "$(cat hB.txt)" --human
           echo '# --- queue ---'
-          ./logos/bin/logosctl --config-dir ./session call signer_cli list --human
-          ./logos/bin/logosctl --config-dir ./session call signer_cli reject "$(cat hA.txt)" --human
-          ./logos/bin/logosctl --config-dir ./session call signer_cli reject "$(cat hB.txt)" --human
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli list --human
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli reject "$(cat hA.txt)" --human
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli reject "$(cat hB.txt)" --human
         code_block: |
-          logosctl call signer_cli show <handle-B>
-          logosctl call signer_cli list
+          logosctl call evm_signer_cli show <handle-B>
+          logosctl call evm_signer_cli list
         expect_contains:
           - '"render_lines":['
           - '"state":"rendered"'

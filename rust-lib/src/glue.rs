@@ -1,4 +1,4 @@
-//! Logos glue for `signer_cli`: a Tier A approver that shows each request over the
+//! Logos glue for `evm_signer_cli`: a Tier A approver that shows each request over the
 //! event plane and takes the decision over method calls.
 //!
 //! One worker thread owns every keystore-facing sequence through `lane`; `state` is
@@ -8,13 +8,13 @@ use crate::prompt::{configure_hint, holds, normalise_bundle_id, render, scrub, s
 use serde_json::{json, Value};
 use std::time::Duration;
 
-const ME: &str = "signer_cli";
+const ME: &str = "evm_signer_cli";
 const POLL: Duration = Duration::from_secs(1);
 const KS_TIMEOUT: Duration = Duration::from_secs(5);
 /// Scrypt runs inside the keystore's `approve`; the spec asks for a deadline well above it.
 const APPROVE_TIMEOUT: Duration = Duration::from_secs(60);
 
-pub trait SignerCliModule: Send + Sync + 'static {
+pub trait EvmSignerCliModule: Send + Sync + 'static {
     /// `{ ok, held, identity, approvers, custodians, rendered, pending_count, last_error, hint }`.
     fn status(&self) -> String;
     /// The keystore's queue summaries — never leg detail.
@@ -30,7 +30,7 @@ pub trait SignerCliModule: Send + Sync + 'static {
     fn on_context_ready(&self, _ctx: &RustModuleContext) {}
 }
 
-pub trait SignerCliModuleEvents {
+pub trait EvmSignerCliModuleEvents {
     /// A request is on screen. `text` is the whole block a human reads.
     fn prompt(&self, handle: String, text: String);
     /// `approved` | `rejected` from the keystore; `gone` when the poll finds it vanished.
@@ -55,7 +55,7 @@ struct Inner {
 }
 
 #[derive(Default)]
-struct SignerCliModuleImpl {
+struct EvmSignerCliModuleImpl {
     inner: std::sync::Arc<Inner>,
 }
 
@@ -218,7 +218,7 @@ impl Inner {
     }
 }
 
-impl SignerCliModuleImpl {
+impl EvmSignerCliModuleImpl {
     fn status_json(&self) -> String {
         let id = identity();
         let held = holds(&id, ME, "approvers");
@@ -240,7 +240,7 @@ impl SignerCliModuleImpl {
     }
 }
 
-impl SignerCliModule for SignerCliModuleImpl {
+impl EvmSignerCliModule for EvmSignerCliModuleImpl {
     fn on_context_ready(&self, _ctx: &RustModuleContext) {
         if self.inner.started.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;
@@ -344,5 +344,5 @@ impl SignerCliModule for SignerCliModuleImpl {
 
 #[no_mangle]
 pub extern "Rust" fn logos_module_install() {
-    install::<SignerCliModuleImpl>();
+    install::<EvmSignerCliModuleImpl>();
 }
