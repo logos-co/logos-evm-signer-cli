@@ -17,10 +17,11 @@ jobs:
     secrets: inherit
     with:
       targets: default
-      # Not yet measured: this crate set is thirteen crates on top of the keystore's
-      # generated client, so the default should hold; raise it from a measurement,
-      # not a guess.
-      cold-derivation-budget: 60
+      # Sibling Rust module logos-eth-wallet-backend MEASURED 109 cold derivations
+      # (its alloy crates plus the logos-qt-sdk/qt-host/protocol libs); this crate set
+      # is far smaller, but the mingw toolchain closure is the same, so start from the
+      # sibling's figure and lower it from a measurement here.
+      cold-derivation-budget: 160
       # NO SMOKE, and that is a reported coverage gap rather than a pass. A
       # module plugin has no entry point, and the harness runs the Windows leg
       # inside stage/, so anything that could load it would have to be a target

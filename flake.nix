@@ -13,9 +13,12 @@
     let
       nixpkgs = logos-module-builder.inputs.nixpkgs;
       systems = [ "aarch64-darwin" "x86_64-darwin" "aarch64-linux" "x86_64-linux" ];
+      # x86_64-windows is a cross PSEUDO-SYSTEM the builder understands; a target, never a
+      # host nixpkgs is evaluated for natively, so it only ever belongs in `packages`.
+      targets = systems ++ [ "x86_64-windows" ];
     in
     {
-      packages = nixpkgs.lib.genAttrs systems (system:
+      packages = nixpkgs.lib.genAttrs targets (system:
         (logos-module-builder.lib.mkLogosModule {
           src = ./.;
           configFile = ./metadata.json;
