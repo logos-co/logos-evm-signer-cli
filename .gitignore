@@ -1,0 +1,6 @@
+result
+result-*
+rust-lib/target/
+rust-lib/generated/
+doctests/outputs/
+logos-rust-sdk-src

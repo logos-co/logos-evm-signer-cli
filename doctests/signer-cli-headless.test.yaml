@@ -1,0 +1,352 @@
+name: "Approving Signatures Headlessly with signer_cli"
+output: signer-cli-headless.md
+release: ""
+
+intro: |
+  `keystore_module` signs nothing without a human. A module *asks* (`request_approval`),
+  and only a configured **approver** may claim the request, read what the keystore says
+  will be signed, and answer with the vault password. In Basecamp that approver is
+  `signer_ui`. On a headless `logosctl` daemon there is no window to show anything in —
+  and `logosctl call keystore_module approve …` is refused, deliberately, because the
+  CLI is the host anchor and not a named module.
+
+  `signer_cli` is the approver for that world. It holds the role the way `signer_ui`
+  does, shows every request over the event plane (`logosctl watch signer_cli`), and takes
+  the decision over method calls (`logosctl call signer_cli approve <handle> <bundle_id>
+  @pwfile`). This doc-test drives the whole cycle against a real daemon, including every
+  refusal the design promises.
+
+what_you_learn:
+  - Why the CLI cannot approve a signature on its own, and how a named module can
+  - How to name `signer_cli` an approver without stripping `signer_ui`
+  - How a request appears on `logosctl watch`, in the keystore's own words
+  - How to approve with the handle and the bundle id you read, and why both are checked
+  - What is refused: a wrong bundle id, a request that was never shown, a wrong password
+  - How reject, cancel and an explicit `show` end up on the wire
+
+prerequisites:
+  - |
+    **Nix** with flakes enabled. Install from [nixos.org](https://nixos.org/download.html), then enable flakes:
+
+    ```bash
+    mkdir -p ~/.config/nix
+    echo 'experimental-features = nix-command flakes' >> ~/.config/nix/nix.conf
+    ```
+
+sections:
+  - title: "Build logosctl"
+    step: true
+    text: |
+      Build the CLI from its published flake. The daemon must be a current one: an
+      older `logosctl` reports every caller as `unknown`, and then no tier admits anyone.
+    steps:
+      - title: "Build the CLI"
+        run: 'nix build "github:logos-co/logos-logoscore-cli{release}#ctl" --out-link ./logos'
+        code_block: "nix build 'github:logos-co/logos-logoscore-cli#ctl' --out-link ./logos"
+        check_file: "logos/bin/logosctl"
+      - run: "./logos/bin/logosctl --version"
+        expect_contains:
+          - "logosctl"
+
+  - title: "Build the three modules"
+    step: true
+    text: |
+      Three modules take part. `keystore_module` holds the keys and the approval queue.
+      `signer_cli` is the approver under test. `signer_cli_probe` is a doc-test fixture
+      standing in for a wallet: a Tier B **requester** that can ask for a signature but
+      can never approve one — and, for this run only, the **custodian** that imports the
+      test key. Each is dropped straight into the session's `modules/` directory, next to
+      the bundled `capability_module` that handles the load-time handshake.
+    steps:
+      - title: "Build keystore_module"
+        run: 'nix build "github:logos-co/logos-evm-keystore-module#install" --out-link ./result-keystore'
+        code_block: "nix build 'github:logos-co/logos-evm-keystore-module#install' --out-link ./result-keystore"
+        check_file: "result-keystore/modules/keystore_module/manifest.json"
+      - title: "Build signer_cli"
+        run: 'nix build "github:logos-co/logos-evm-signer-cli{release}#install" --out-link ./result-signer'
+        code_block: |
+          # From inside the clone this is simply: nix build '.#install'
+          nix build 'github:logos-co/logos-evm-signer-cli#install' --out-link ./result-signer
+        check_file: "result-signer/modules/signer_cli/manifest.json"
+      - title: "Build the requester fixture"
+        run: 'nix build "github:logos-co/logos-evm-signer-cli{release}?dir=doctests/requester#install" --out-link ./result-probe'
+        code_block: |
+          # From inside the clone: nix build './doctests/requester#install'
+          nix build 'github:logos-co/logos-evm-signer-cli?dir=doctests/requester#install' --out-link ./result-probe
+        check_file: "result-probe/modules/signer_cli_probe/manifest.json"
+      - title: "Lay out the session"
+        run: |
+          mkdir -p session/modules
+          cp -RL ./logos/modules/. ./session/modules/
+          for r in result-keystore result-signer result-probe; do cp -RL ./$r/modules/. ./session/modules/; done
+          chmod -R u+w session/modules
+          ls session/modules
+        code_block: |
+          mkdir -p session/modules
+          cp -RL ./logos/modules/. ./session/modules/
+          cp -RL ./result-*/modules/. ./session/modules/
+        expect_contains:
+          - "keystore_module"
+          - "signer_cli"
+          - "signer_cli_probe"
+
+  - title: "Start the daemon and load the modules"
+    step: true
+    steps:
+      - title: "Start the daemon"
+        run: "./logos/bin/logosctl --config-dir ./session daemon start --detach"
+        code_block: "logosctl daemon start --detach"
+      - run: "sleep 3"
+      - title: "Load keystore_module"
+        run: "./logos/bin/logosctl --config-dir ./session module load keystore_module"
+        code_block: "logosctl module load keystore_module"
+        expect_contains:
+          - "keystore_module"
+      - title: "Load signer_cli"
+        run: "./logos/bin/logosctl --config-dir ./session module load signer_cli"
+        code_block: "logosctl module load signer_cli"
+        expect_contains:
+          - "signer_cli"
+      - title: "Load the requester fixture"
+        run: "./logos/bin/logosctl --config-dir ./session module load signer_cli_probe"
+        code_block: "logosctl module load signer_cli_probe"
+        expect_contains:
+          - "signer_cli_probe"
+      - run: "sleep 2"
+
+  - title: "What the CLI cannot do"
+    step: true
+    text: |
+      `logosctl call` authenticates as the **host anchor** — one undifferentiated identity
+      covering the shells and every relayed token. Admitting it would make the CLI a legal
+      bypass of the human, so Tier A refuses it. The same refusal covers Tier D: the CLI
+      cannot import a key either. The refusal string is identical across tiers, so a caller
+      cannot use it to work out which one it failed.
+    steps:
+      - title: "The CLI is not an approver"
+        run: "./logos/bin/logosctl --config-dir ./session call keystore_module pending --human || true"
+        code_block: "logosctl call keystore_module pending"
+        expect_contains:
+          - "not authorized"
+      - title: "…and not a custodian"
+        run: "./logos/bin/logosctl --config-dir ./session call keystore_module import_private_key ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 str:pw --human || true"
+        code_block: "logosctl call keystore_module import_private_key <privkey> str:pw"
+        expect_contains:
+          - "not authorized"
+      - title: "signer_cli is not an approver yet either"
+        text: |
+          Until something calls `configure`, the keystore's built-in defaults stand:
+          `signer_ui` approves, `keystore_ui` mutates. `status` says so, and names the
+          exact command that fixes it — built from the names currently in force, because
+          `configure` is **total**: a document that names only `signer_cli` would strip
+          `signer_ui`.
+        run: "./logos/bin/logosctl --config-dir ./session call signer_cli status --human"
+        code_block: "logosctl call signer_cli status"
+        expect_contains:
+          - '"held":false'
+          - "logosctl call keystore_module configure"
+
+  - title: "Name the roles"
+    step: true
+    steps:
+      - title: "Configure both roles in one call"
+        run: |
+          ./logos/bin/logosctl --config-dir ./session call keystore_module configure '{"approvers":["signer_ui","signer_cli"],"custodians":["signer_cli_probe"]}' --human
+        code_block: |
+          logosctl call keystore_module configure '{"approvers":["signer_ui","signer_cli"],"custodians":["signer_cli_probe"]}'
+        expect_contains:
+          - '"signer_cli"'
+          - '"signer_cli_probe"'
+      - title: "signer_cli now holds the role"
+        run: "./logos/bin/logosctl --config-dir ./session call signer_cli status --human"
+        code_block: "logosctl call signer_cli status"
+        expect_contains:
+          - '"held":true'
+          - '"identity":"signer_cli"'
+      - title: "Import the test key"
+        text: |
+          The fixture imports Foundry's well-known account 0 under the vault password
+          `doctest-pw`. A Tier D call, admitted only because the document above named it.
+        run: "./logos/bin/logosctl --config-dir ./session call signer_cli_probe setup --human"
+        code_block: "logosctl call signer_cli_probe setup"
+        expect_contains:
+          - "f39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+
+  - title: "A request arrives"
+    step: true
+    text: |
+      In a real session the watcher runs in its own terminal, for as long as the
+      operator is on duty. Here it runs in the background and writes to a file.
+      It is armed **before** the request is made: the event plane buffers nothing.
+    steps:
+      - title: "Start watching signer_cli"
+        run: "sh -c './logos/bin/logosctl --config-dir ./session watch signer_cli --json > watch.jsonl 2>&1 & echo $! > watch.pid'"
+        code_block: "logosctl watch signer_cli        # in its own terminal"
+      - run: "sleep 2"
+      - title: "The wallet asks for a signature"
+        run: "./logos/bin/logosctl --config-dir ./session call signer_cli_probe request str:hello-logos --human | tee request.json"
+        code_block: "logosctl call signer_cli_probe request str:hello-logos"
+        expect_contains:
+          - '"handle":"ksh_'
+      - run: "sleep 3"
+      - title: "The prompt, as the watcher saw it"
+        text: |
+          `signer_cli` claimed the request the moment it was offered — claiming means
+          "this approver has it on screen", not "the human decided" — and published the
+          keystore's two lists, kept apart: what the requester *claims* this is for, and
+          what will actually be signed. Nothing here is written by `signer_cli`; the lines
+          are the keystore's, verbatim. The last two lines are the commands to type.
+        run: "cat watch.jsonl"
+        code_block: "# the watcher's terminal"
+        expect_contains:
+          - '"event":"prompt"'
+          - "Requested by: signer_cli_probe"
+          - "claimed by the requester"
+          - "Commitment:"
+          - "approve:  logosctl call signer_cli approve ksh_"
+          - '"event":"queue_changed"'
+      - title: "The queue agrees"
+        run: "./logos/bin/logosctl --config-dir ./session call signer_cli list --human"
+        code_block: "logosctl call signer_cli list"
+        expect_contains:
+          - '"state":"rendered"'
+      - title: "Note the handle and the bundle id"
+        run: |
+          ./logos/bin/logosctl --config-dir ./session call signer_cli status --human \
+            | python3 -c 'import sys,json; r=json.load(sys.stdin)["rendered"]; open("handle.txt","w").write(r["handle"]); open("bundle.txt","w").write(r["bundle_id"]); print(r["handle"], r["bundle_id"])'
+        code_block: "logosctl call signer_cli status"
+        check_file: "bundle.txt"
+
+  - title: "What is refused"
+    step: true
+    text: |
+      `approve` binds three things: the handle on screen, the bundle id the human read,
+      and the password. Each refusal below happens **before** the password is used.
+    steps:
+      - title: "A bundle id that is not the one shown"
+        text: |
+          (`str:` because `logosctl` coerces an all-digit argument to a number; a real bundle
+          id is 64 hex characters and is safe as written.)
+        run: |
+          echo doctest-pw > pw.txt
+          ./logos/bin/logosctl --config-dir ./session call signer_cli approve "$(cat handle.txt)" str:0000000000000000000000000000000000000000000000000000000000000000 @pw.txt --human || true
+        code_block: "logosctl call signer_cli approve <handle> str:0000…0000 @pw.txt"
+        expect_contains:
+          - '"ok":false'
+          - "bundle_id does not match"
+      - title: "A request that was never shown"
+        run: "./logos/bin/logosctl --config-dir ./session call signer_cli approve ksh_deadbeef \"$(cat bundle.txt)\" @pw.txt --human || true"
+        code_block: "logosctl call signer_cli approve ksh_deadbeef <bundle_id> @pw.txt"
+        expect_contains:
+          - '"ok":false'
+          - "not the request on screen"
+      - title: "A wrong password"
+        text: |
+          The keystore's own refusal, relayed as one sentence. The request stays on
+          screen, so the operator simply retypes.
+        run: |
+          echo not-the-password > bad.txt
+          ./logos/bin/logosctl --config-dir ./session call signer_cli approve "$(cat handle.txt)" "$(cat bundle.txt)" @bad.txt --human || true
+          echo '# --- still on screen ---'
+          ./logos/bin/logosctl --config-dir ./session call signer_cli status --human
+        code_block: "logosctl call signer_cli approve <handle> <bundle_id> @bad.txt"
+        expect_contains:
+          - "approval failed"
+          - '"rendered":{"bundle_id":"'
+
+  - title: "Approve"
+    step: true
+    text: |
+      The password file was written with `echo`, so it ends in a newline; `signer_cli`
+      strips exactly one, the `--password-stdin` convention. The reply is a **count**:
+      the approver causes a signature to exist and never receives it. Only the requester
+      can collect it, with the receipt it was handed when it asked.
+    steps:
+      - title: "The human says yes"
+        run: "./logos/bin/logosctl --config-dir ./session call signer_cli approve \"$(cat handle.txt)\" \"$(cat bundle.txt)\" @pw.txt --human"
+        code_block: "logosctl call signer_cli approve <handle> <bundle_id> @pw.txt"
+        expect_contains:
+          - '"ok":true'
+          - '"signed_count":2'
+      - title: "The requester collects its signatures"
+        run: "./logos/bin/logosctl --config-dir ./session call signer_cli_probe outcome \"$(cat handle.txt)\" --human"
+        code_block: "logosctl call signer_cli_probe outcome <handle>"
+        expect_contains:
+          - '"reason":"approved"'
+          - '"signed":["0x'
+      - run: "sleep 2"
+      - title: "The watcher saw it settle"
+        run: "cat watch.jsonl"
+        expect_contains:
+          - '"event":"settled"'
+          - '"arg1":"approved"'
+
+  - title: "Reject, cancel, and choose"
+    step: true
+    steps:
+      - title: "The human says no"
+        run: |
+          ./logos/bin/logosctl --config-dir ./session call signer_cli_probe request str:second --human \
+            | python3 -c 'import sys,json; open("h2.txt","w").write(json.load(sys.stdin)["handle"])'
+          sleep 2
+          ./logos/bin/logosctl --config-dir ./session call signer_cli reject "$(cat h2.txt)" --human
+          ./logos/bin/logosctl --config-dir ./session call signer_cli_probe outcome "$(cat h2.txt)" --human
+        code_block: |
+          logosctl call signer_cli reject <handle>
+          logosctl call signer_cli_probe outcome <handle>
+        expect_contains:
+          - '"reason":"rejected"'
+      - title: "The requester gives up"
+        text: |
+          A cancelled request is the one ending the keystore never announces. The poll
+          notices it has left the queue and reports it as `gone`.
+        run: |
+          ./logos/bin/logosctl --config-dir ./session call signer_cli_probe request str:third --human \
+            | python3 -c 'import sys,json; open("h3.txt","w").write(json.load(sys.stdin)["handle"])'
+          sleep 2
+          ./logos/bin/logosctl --config-dir ./session call signer_cli_probe cancel "$(cat h3.txt)"
+          sleep 3
+          cat watch.jsonl
+        code_block: "logosctl call signer_cli_probe cancel <handle>"
+        expect_contains:
+          - '"arg1":"rejected"'
+          - '"arg1":"gone"'
+      - title: "Two waiting: pick one explicitly"
+        text: |
+          With two requests queued, `signer_cli` shows the first. `show` claims another;
+          the keystore keeps at most one request rendered, so the first goes back to
+          `offered`. That single rendered record is what binds the text a human read to
+          the approval that follows.
+        run: |
+          ./logos/bin/logosctl --config-dir ./session call signer_cli_probe request str:A --human \
+            | python3 -c 'import sys,json; open("hA.txt","w").write(json.load(sys.stdin)["handle"])'
+          ./logos/bin/logosctl --config-dir ./session call signer_cli_probe request str:B --human \
+            | python3 -c 'import sys,json; open("hB.txt","w").write(json.load(sys.stdin)["handle"])'
+          sleep 2
+          ./logos/bin/logosctl --config-dir ./session call signer_cli show "$(cat hB.txt)" --human
+          echo '# --- queue ---'
+          ./logos/bin/logosctl --config-dir ./session call signer_cli list --human
+          ./logos/bin/logosctl --config-dir ./session call signer_cli reject "$(cat hA.txt)" --human
+          ./logos/bin/logosctl --config-dir ./session call signer_cli reject "$(cat hB.txt)" --human
+        code_block: |
+          logosctl call signer_cli show <handle-B>
+          logosctl call signer_cli list
+        expect_contains:
+          - '"render_lines":['
+          - '"state":"rendered"'
+          - '"state":"offered"'
+
+  - title: "Stop"
+    step: true
+    steps:
+      - title: "Stop the watcher and the daemon"
+        run: |
+          kill "$(cat watch.pid)" 2>/dev/null || true
+          ./logos/bin/logosctl --config-dir ./session daemon stop
+        code_block: "logosctl daemon stop"
+      - run: "sleep 2"
+      - title: "Confirm the daemon has stopped"
+        run: "./logos/bin/logosctl --config-dir ./session daemon status || true"
+        code_block: "logosctl daemon status"
+        expect_contains:
+          - "not_running"
