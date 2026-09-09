@@ -160,11 +160,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1788960271,
+        "lastModified": 1788976425,
         "narHash": "sha256-fooLykqv5ZjoHmuquIXQdv1C9gk4Ktnqzz7UnNrYl9o=",
         "owner": "logos-co",
         "repo": "logos-evm-keystore-module",
-        "rev": "00ea4082a7f8fea863782521291c2f383248862b",
+        "rev": "ef85b44af5d376709e9a9038483019c4e61ae435",
         "type": "github"
       },
       "original": {
