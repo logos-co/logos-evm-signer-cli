@@ -8,6 +8,8 @@
 //! Offline on every path, and additive: nothing here replaces a keystore line.
 
 use logos_tx_decoder::{decode_call, describe, parse_render_lines, AbiDb};
+
+use crate::tokenlist;
 use std::sync::OnceLock;
 
 /// Parsing ~430KB of embedded ABI JSON per request would be absurd, and this module
@@ -33,7 +35,12 @@ pub fn interpret(render_lines: &[String]) -> Vec<String> {
         if label {
             out.push(format!("Item [{}]:", leg.index));
         }
-        out.extend(describe(&decode_call(db, leg.chain_id, &leg.to, &leg.data)));
+        let decoded = decode_call(db, leg.chain_id, &leg.to, &leg.data);
+        out.extend(describe(&decoded));
+        // AFTER the decoder's own reading, never mixed into it: the decoder says what it
+        // can back, and this says what a token list on this device claims. Empty when no
+        // list is loaded, which is the normal state for a signing device.
+        out.extend(tokenlist::describe(leg.chain_id, &leg.to, &decoded));
     }
     out
 }

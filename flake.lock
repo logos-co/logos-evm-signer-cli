@@ -3118,11 +3118,11 @@
         "rust-overlay": "rust-overlay_4"
       },
       "locked": {
-        "lastModified": 1788921029,
-        "narHash": "sha256-WtKJKnK1aCzLKNhPLihYV6ikDjIn2U0veYUKR4iM3fU=",
+        "lastModified": 1789050017,
+        "narHash": "sha256-x2f/PIivlDWHH/RR9YOoOul+llIdKzu2fEzvQC5Mwzs=",
         "owner": "logos-co",
         "repo": "logos-module-builder",
-        "rev": "0292950943df4adcecb5c60378b7b57bf6706790",
+        "rev": "e096af5a4c288d170a6811884273a5ec2b4ff17e",
         "type": "github"
       },
       "original": {
@@ -5885,11 +5885,11 @@
         "nixpkgs-windows": "nixpkgs-windows_3"
       },
       "locked": {
-        "lastModified": 1788889549,
-        "narHash": "sha256-7HylwQZ9ywzlwAqwBboJJkV0r4RhRvnLatQR+Yv8sdE=",
+        "lastModified": 1789006373,
+        "narHash": "sha256-XMsTZhPheGAX+hPd1InIfFwSm8lzdTo3cKC4l2J6Pf0=",
         "owner": "logos-co",
         "repo": "logos-nix",
-        "rev": "30285b1025f053b0adca39a6a5c94f93df0619e2",
+        "rev": "2ab5416a1fb92d6fa3f0dee9a57500df614c4b5d",
         "type": "github"
       },
       "original": {
@@ -10658,11 +10658,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1788901921,
-        "narHash": "sha256-K+Iwz88UK2i7O00fpdw51CPV4a77zj8XmPspihp3fPc=",
+        "lastModified": 1789046709,
+        "narHash": "sha256-oA39e7o4Fe7HfV0SHx4QzBDQy2+1fwSoFSEnHFYGaBE=",
         "owner": "logos-co",
         "repo": "logos-rust-sdk",
-        "rev": "f46f40edc2b4bb1e8a142f27fa0ec57e2c46b87a",
+        "rev": "888302ef0f2664d9b17e31da22bce067e9f96e12",
         "type": "github"
       },
       "original": {
@@ -17868,7 +17868,8 @@
     "root": {
       "inputs": {
         "keystore_module": "keystore_module",
-        "logos-module-builder": "logos-module-builder"
+        "logos-module-builder": "logos-module-builder",
+        "token_list_module": "token_list_module"
       }
     },
     "rust-overlay": {
@@ -17968,6 +17969,26 @@
       "original": {
         "owner": "oxalica",
         "repo": "rust-overlay",
+        "type": "github"
+      }
+    },
+    "token_list_module": {
+      "inputs": {
+        "logos-module-builder": [
+          "logos-module-builder"
+        ]
+      },
+      "locked": {
+        "lastModified": 1788923121,
+        "narHash": "sha256-VmrT3AaEzBKJpLcOoCN758RGoIKPK9ocaJ3wj9aWSEw=",
+        "owner": "logos-co",
+        "repo": "logos-evm-token-list-module",
+        "rev": "db6c5aee3bd8fb5f9f0fbd6556c18f42807a477e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "logos-co",
+        "repo": "logos-evm-token-list-module",
         "type": "github"
       }
     }

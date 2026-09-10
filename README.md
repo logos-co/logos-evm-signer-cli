@@ -82,6 +82,16 @@ sure it is: **VERIFIED** means the address is in the database *and* declares tha
 section keeps its place when there was nothing to decode — a message, a digest, or a
 call this signer does not know — and says so, exactly as the Signer app does.
 
+Below the decoder's reading of a leg, `token_list_module` may add what a token list on this
+device calls the address, and the amount restated in its units. That is a **name, not a
+check of the code**, and the line says so and names the list that answered — a user can add
+a custom token, so a friendly symbol on a hostile address is reachable. It never touches the
+tiers above: those belong to the ABI database, which backs a claim about code that no token
+list makes.
+
+`token_list_module` is an **optional** dependency. Absent is a normal state and costs only
+those lines: this signer must come up on a device that has no token list at all.
+
 `show` returns the same lines as `interpretation_lines`, so a machine consumer need not
 re-parse the block.
 

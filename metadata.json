@@ -9,6 +9,7 @@
   "category": "wallet",
   "main": "evm_signer_cli_plugin",
   "dependencies": ["keystore_module"],
+  "optional_dependencies": ["token_list_module"],
   "include": [],
   "capabilities": [],
   "codegen": {

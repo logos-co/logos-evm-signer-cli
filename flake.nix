@@ -7,6 +7,13 @@
       url = "github:logos-co/logos-evm-keystore-module";
       inputs.logos-module-builder.follows = "logos-module-builder";
     };
+    # OPTIONAL. Named so the generated client exists; never loaded on its account, and
+    # absent is a normal state — the interpretation it feeds is a feature, not a
+    # precondition, and this signer must come up on a device that has no token list.
+    token_list_module = {
+      url = "github:logos-co/logos-evm-token-list-module";
+      inputs.logos-module-builder.follows = "logos-module-builder";
+    };
   };
 
   outputs = inputs@{ self, logos-module-builder, ... }:
