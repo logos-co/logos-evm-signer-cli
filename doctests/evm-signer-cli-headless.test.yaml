@@ -20,6 +20,7 @@ what_you_learn:
   - Why the CLI cannot approve a signature on its own, and how a named module can
   - How to name `evm_signer_cli` an approver without stripping `evm_signer_ui`
   - How a request appears on `logosctl watch`, in the keystore's own words
+  - How the signer's own offline reading of the calldata is shown, and how it is labelled
   - How to approve with the handle and the bundle id you read, and why both are checked
   - What is refused: a wrong bundle id, a request that was never shown, a wrong password
   - How reject, cancel and an explicit `show` end up on the wire
@@ -192,19 +193,38 @@ sections:
       - title: "The prompt, as the watcher saw it"
         text: |
           `evm_signer_cli` claimed the request the moment it was offered — claiming means
-          "this approver has it on screen", not "the human decided" — and published the
-          keystore's two lists, kept apart: what the requester *claims* this is for, and
-          what will actually be signed. Nothing here is written by `evm_signer_cli`; the lines
-          are the keystore's, verbatim. The last two lines are the commands to type.
+          "this approver has it on screen", not "the human decided" — and published three
+          sections, numbered and never merged. Section 1 is what the requester *claims* this
+          is for, in its own words. Section 2 is what will actually be signed, in the
+          keystore's words, verbatim. Section 3 is the only text `evm_signer_cli` writes
+          itself: the calldata of section 2, decoded offline against a vendored ABI database
+          and labelled with how sure it is. The last two lines are the commands to type.
         run: "cat watch.jsonl"
         code_block: "# the watcher's terminal"
         expect_contains:
           - '"event":"prompt"'
-          - "Requested by: evm_signer_cli_probe"
+          - "1.  Requested by: evm_signer_cli_probe"
           - "claimed by the requester"
+          - "2.  What you are signing"
           - "Commitment:"
           - "approve:  logosctl call evm_signer_cli approve ksh_"
           - '"event":"queue_changed"'
+      - title: "What the signer made of it"
+        text: |
+          The fixture asks for two legs: a text message, and a WETH `transfer` on mainnet.
+          There is nothing to decode in a message, so section 3 covers item **[2]** only and
+          says so — an unlabelled reading would look like a description of the whole request.
+          `VERIFIED` is the strong tier: the address is in the database *and* declares that
+          selector. A selector that merely resolves, with nothing tying it to the address,
+          reads `UNVERIFIED`; a request with nothing decodable in it at all drops the section
+          rather than heading an empty one.
+        run: 'grep -o "3\.  What this signer.*" watch.jsonl | head -1'
+        code_block: "# the watcher's terminal, section 3"
+        expect_contains:
+          - "3.  What this signer makes of section 2"
+          - "Item [2]:"
+          - "VERIFIED (this address is WETH on chain 1"
+          - "Function: transfer(address,uint256)"
       - title: "The queue agrees"
         run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli list --human"
         code_block: "logosctl call evm_signer_cli list"
