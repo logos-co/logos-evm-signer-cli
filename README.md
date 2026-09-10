@@ -32,19 +32,32 @@ logosctl watch evm_signer_cli --event prompt      # or without --event, to see s
   arg1:
 ================================================================
 SIGNING REQUEST  ksh_3f2a…
-Requested by: eth_wallet_backend
 ----------------------------------------------------------------
-Requester's claim (NOT verified by the keystore):
-  Purpose (claimed by the requester): Send 0.01 ETH
+1.  Requested by: eth_wallet_backend
+    What that app says this is for. Its own words — this signer
+    cannot check any of it.
+  Purpose (claimed by the requester): Send 0.1 WETH
 ----------------------------------------------------------------
-What will be signed (the keystore's own words):
-  Account: 0xf39F…
-  Commitment: 8c1e…
+2.  What you are signing
+    The keystore's own reading of the request, shown in full and
+    never shortened. This is what the signature will cover.
+  Account: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+  Commitment: 8c1e9f2b…
   1 item(s) to sign:
-    [1] Transaction on chain 11155111
-        To: 0x7099…
-        Value: 0x2386f26fc10000 (10000000000000000)
-        …
+    [1] Transaction on chain 1
+        To: 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2
+        Value: 0
+        Selector: 0xa9059cbb
+        Data: 0xa9059cbb000000000000000000000000d8da6bf26964af9d7eed9e03e53415d37aa96045000000000000000000000000000000000000000000000000016345785d8a0000
+----------------------------------------------------------------
+3.  What this signer makes of section 2
+    Decoded on this device from the lines above. Not part of what
+    is signed, and every line says how sure it is.
+  Interpreted: WETH — VERIFIED (this address is WETH on chain 1, and it declares this function)
+    Function: transfer(address,uint256)
+      dst: 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
+      wad: 100000000000000000
+    In WETH units: 0.1 WETH
 ----------------------------------------------------------------
 approve:  logosctl call evm_signer_cli approve ksh_3f2a… 8c1e… @/path/to/pwfile
 reject:   logosctl call evm_signer_cli reject ksh_3f2a…
@@ -59,9 +72,18 @@ logosctl call evm_signer_cli approve ksh_3f2a… 8c1e… @/run/user/501/pw
 # → {"ok":true,"handle":"ksh_3f2a…","signed_count":1}
 ```
 
-The two lists are the keystore's and are never merged: the *claim* is the requester's own
-account of what it wants and is worth nothing as evidence; the *render* is what is actually
-signed, plus the commitment over it. Read the second one.
+Three sections, in this order and never merged. Section 1 is the requester's own account of
+what it wants and is worth nothing as evidence. Section 2 is what is actually signed, plus
+the commitment over it — read that one. Section 3 is this module's own reading of section 2,
+decoded offline from those very lines against a vendored ABI database, so it cannot describe
+different bytes than the ones above it. It is additive, never a substitute, and it says how
+sure it is: **VERIFIED** means the address is in the database *and* declares that function,
+**UNVERIFIED** means a 4-byte selector matched and nothing ties it to the address. The
+section keeps its place when there was nothing to decode — a message, a digest, or a
+call this signer does not know — and says so, exactly as the Signer app does.
+
+`show` returns the same lines as `interpretation_lines`, so a machine consumer need not
+re-parse the block.
 
 Driving the wallet itself headlessly — `send`, `send_status`, the receipt sweep — is covered in
 the [logos-eth-wallet-backend README](https://github.com/logos-co/logos-eth-wallet-backend#headless-operation-logosctl),
@@ -73,7 +95,7 @@ the [logos-eth-wallet-backend README](https://github.com/logos-co/logos-eth-wall
 |---|---|
 | `status()` | `{ok, held, identity, approvers, custodians, rendered, pending_count, last_error, hint}` — `held` says whether this module is a configured approver; `hint` is the exact `configure` command when it is not |
 | `list()` | the keystore's queue summaries — never leg detail |
-| `show(handle)` | claim `handle` for display: the keystore's lines, verbatim, plus the prompt text |
+| `show(handle)` | claim `handle` for display: the keystore's lines, verbatim, this signer's `interpretation_lines`, plus the prompt text |
 | `approve(handle, bundle_id, password)` | the human said yes to the request on screen; `{ok, handle, signed_count}` |
 | `reject(handle)` | the human said no; `bool` |
 | `refresh()` | re-read the queue now, then answer as `status` does |

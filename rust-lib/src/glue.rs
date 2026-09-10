@@ -4,6 +4,7 @@
 //! One worker thread owns every keystore-facing sequence through `lane`; `state` is
 //! held only for reads and writes, never across a call, so `status()` always answers.
 
+use crate::decoder::interpret;
 use crate::prompt::{configure_hint, holds, normalise_bundle_id, render, scrub, strip_file_newline, Rendered};
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -19,7 +20,8 @@ pub trait EvmSignerCliModule: Send + Sync + 'static {
     fn status(&self) -> String;
     /// The keystore's queue summaries — never leg detail.
     fn list(&self) -> String;
-    /// Claim `handle` for display: the keystore's lines, verbatim, plus the prompt text.
+    /// Claim `handle` for display: the keystore's lines, verbatim, this signer's own
+    /// reading of them, and the prompt text.
     fn show(&self, handle: String) -> String;
     /// The human said yes to the request on screen. `bundle_id` must be the value shown.
     fn approve(&self, handle: String, bundle_id: String, password: String) -> String;
@@ -97,12 +99,14 @@ fn strings(v: &Value, key: &str) -> Vec<String> {
 fn claim(handle: &str) -> Result<Rendered, String> {
     let v = parse(modules().keystore_module.acknowledge_with_timeout(handle, KS_TIMEOUT))?;
     let field = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
+    let render_lines = strings(&v, "render_lines");
     Ok(Rendered {
         handle: field("handle"),
         bundle_id: field("bundle_id"),
         requester: field("requester"),
         claim_lines: strings(&v, "claim_lines"),
-        render_lines: strings(&v, "render_lines"),
+        interpretation_lines: interpret(&render_lines),
+        render_lines,
     })
 }
 
@@ -267,7 +271,8 @@ impl EvmSignerCliModule for EvmSignerCliModuleImpl {
                 let text = render(&r);
                 let reply = json!({
                     "ok": true, "handle": r.handle, "bundle_id": r.bundle_id, "requester": r.requester,
-                    "claim_lines": r.claim_lines, "render_lines": r.render_lines, "text": text,
+                    "claim_lines": r.claim_lines, "render_lines": r.render_lines,
+                    "interpretation_lines": r.interpretation_lines, "text": text,
                 });
                 self.inner.put_on_screen(r);
                 reply.to_string()
