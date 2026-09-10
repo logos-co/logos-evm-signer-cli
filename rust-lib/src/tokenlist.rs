@@ -12,7 +12,7 @@
 //! `token_list_module` is an OPTIONAL dependency. Absent is a normal state — the prompt is
 //! then exactly what it was before this existed.
 
-use logos_tx_decoder::{Arg, DecodedCall};
+use logos_tx_decoder::{Arg, Confidence, DecodedCall};
 use serde_json::Value;
 
 /// Bounded: this runs while a human waits at a prompt, and a token list that cannot answer
@@ -75,8 +75,21 @@ fn ask(chain_id: u64, address: &str) -> Option<Listed> {
 /// Lines about the called address, or none. Appended after the decoder's own reading of
 /// the same leg, never mixed into it.
 pub fn describe(chain_id: u64, to: &str, d: &DecodedCall) -> Vec<String> {
+    // Nothing to add over a VERIFIED address. The ABI database has already named it with
+    // more behind the name than a list has, and a second, weaker claim beside a stronger
+    // one is a question the reader has to settle rather than an answer. A token that
+    // should be named with certainty belongs in that database, not here.
+    if !worth_adding(d) {
+        return Vec::new();
+    }
     let Some(t) = ask(chain_id, to) else { return Vec::new() };
     lines(&t, d)
+}
+
+/// Whether a token list has anything to add to this reading. Its own function so the rule
+/// is testable without the module runtime, which is where the lookup would otherwise hide it.
+fn worth_adding(d: &DecodedCall) -> bool {
+    d.confidence != Some(Confidence::Verified)
 }
 
 /// The wording, kept apart from the lookup so it is testable without the module runtime.
@@ -133,7 +146,7 @@ fn scale(raw: &str, decimals: u8) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{lines, scale, Listed};
+    use super::{lines, scale, worth_adding, Listed};
     use logos_tx_decoder::{decode_call, AbiDb};
 
     const USDC: &str = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
@@ -179,6 +192,19 @@ mod tests {
         let out = rendered("embedded", TRANSFER);
         assert!(out.contains("the amount is 1000 USDC"), "{out}");
         assert!(out.contains("If that reading is right"), "{out}");
+    }
+
+    #[test]
+    fn nothing_is_added_over_an_address_the_database_already_verified() {
+        // The ABI database named it with more behind the name than a list has. Two claims
+        // about one address, the weaker one second, is a question rather than an answer —
+        // and the Signer app suppresses it for the same reason, so the two surfaces agree.
+        let db = AbiDb::embedded().unwrap();
+        const WETH: &str = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+        assert!(!worth_adding(&decode_call(&db, 1, WETH, TRANSFER)), "WETH on mainnet is verified");
+        // ...but an address it cannot vouch for is exactly what this layer is for.
+        assert!(worth_adding(&decode_call(&db, 1, USDC, TRANSFER)));
+        assert!(worth_adding(&decode_call(&db, 137, WETH, TRANSFER)), "another chain is not a hit");
     }
 
     #[test]
