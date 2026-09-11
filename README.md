@@ -146,9 +146,12 @@ dismisses.
 The daemon logs only the argument count of a call, never a value; this module never logs,
 emits or stores a password.
 
-Note that the daemon publishes every method **reply** as a `__logos_call_complete__` event on
-the module's channel, so a bare `logosctl watch evm_signer_cli` also shows call results. Nothing
-this module returns is secret; `--event prompt` keeps the stream to what a human needs.
+A daemon predating the completion-channel reservation publishes every method **reply** as a
+`__logos_call_complete__` event on the module's channel, so a bare
+`logosctl watch evm_signer_cli` also shows call results there. logos-protocol now reserves that
+name, so on a current daemon a bare watch shows only this module's own events — the change is
+not in `0.3.0-rc.1` or earlier. Nothing this module returns is secret either way;
+`--event prompt` keeps the stream to what a human needs.
 
 ## What is deliberately absent
 
