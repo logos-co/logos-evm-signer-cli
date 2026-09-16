@@ -1598,7 +1598,7 @@ dependencies = [
 [[package]]
 name = "logos_tx_decoder"
 version = "1.0.0"
-source = "git+https://github.com/logos-co/logos-tx-decoder?rev=8b5f0ca5cf23a8f01786772e3860ecec13c5ff46#8b5f0ca5cf23a8f01786772e3860ecec13c5ff46"
+source = "git+https://github.com/logos-co/logos-tx-decoder?rev=ca2e4193bff09ec4d225bf19ebcf5d2f3ab56bbb#ca2e4193bff09ec4d225bf19ebcf5d2f3ab56bbb"
 dependencies = [
  "alloy",
  "hex",

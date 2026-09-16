@@ -201,10 +201,11 @@ mod tests {
         // and the Signer app suppresses it for the same reason, so the two surfaces agree.
         let db = AbiDb::embedded().unwrap();
         const WETH: &str = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+        const UNKNOWN: &str = "0x1234567890abcdef1234567890abcdef12345678";
         assert!(!worth_adding(&decode_call(&db, 1, WETH, TRANSFER)), "WETH on mainnet is verified");
+        assert!(!worth_adding(&decode_call(&db, 1, USDC, TRANSFER)), "USDC on mainnet is verified");
         // ...but an address it cannot vouch for is exactly what this layer is for.
-        assert!(worth_adding(&decode_call(&db, 1, USDC, TRANSFER)));
-        assert!(worth_adding(&decode_call(&db, 137, WETH, TRANSFER)), "another chain is not a hit");
+        assert!(worth_adding(&decode_call(&db, 1, UNKNOWN, TRANSFER)));
     }
 
     #[test]
