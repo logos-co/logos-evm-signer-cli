@@ -8,8 +8,12 @@
   "concurrency": "multi",
   "category": "wallet",
   "main": "evm_signer_cli_plugin",
-  "dependencies": ["keystore_module"],
-  "optional_dependencies": ["token_list_module"],
+  "dependencies": [
+    { "name": "keystore_module", "version": "~0.1.0" }
+  ],
+  "optional_dependencies": [
+    { "name": "token_list_module", "version": "~0.1.0" }
+  ],
   "include": [],
   "capabilities": [],
   "codegen": {
