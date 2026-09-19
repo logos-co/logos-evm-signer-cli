@@ -80,7 +80,10 @@ different bytes than the ones above it. It is additive, never a substitute, and 
 sure it is: **VERIFIED** means the address is in the database *and* declares that function,
 **UNVERIFIED** means a 4-byte selector matched and nothing ties it to the address. The
 section keeps its place when there was nothing to decode — a message, a digest, or a
-call this signer does not know — and says so, exactly as the Signer app does.
+call this signer does not know — and says so, exactly as the Signer app does. The two
+read a request through one function in `logos-tx-decoder`, so they cannot say different
+things about the same bytes. A swap through a verified router also reads as what it does:
+which token leaves, which arrives, the bound on each amount, the pool fee and the deadline.
 
 Below the decoder's reading of a leg, `token_list_module` may add what a token list on this
 device calls the address, and the amount restated in its units. That is a **name, not a
@@ -161,8 +164,9 @@ not in `0.3.0-rc.1` or earlier. Nothing this module returns is secret either way
 - **No self-enrolment.** `configure` is ungated and total; a module naming itself would be
   the exposure the keystore's spec defers, and two doing so would race. The operator names
   the roles; `status` says what to run.
-- **No decoded calldata yet.** `evm_signer_ui` adds an offline interpretation of the calldata
-  in the render lines (logos-tx-decoder); linking it into a Rust module is a follow-up.
+- **No judgement about the account.** The reading covers the transaction and its own
+  fields — chain, recipient, value, calldata — because that is what a signature covers.
+  Whether an address a call pays is the one signing is not among them, and no line says.
 
 ## Build and test
 

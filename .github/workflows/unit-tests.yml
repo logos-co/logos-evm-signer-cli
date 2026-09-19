@@ -1,0 +1,43 @@
+name: Unit tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: unit-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cargo-test:
+    name: cargo test (pure core)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.89"
+
+      # `logos-rust-sdk` is an optional path dependency: off under
+      # --no-default-features, but cargo still loads its manifest.
+      - name: Provide the optional SDK manifest
+        uses: actions/checkout@v4
+        with:
+          repository: logos-co/logos-rust-sdk
+          path: logos-rust-sdk-src
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-lib
+      # The prompt, the token-list layer and the reading of a request, without the runtime.
+      - run: cargo test --manifest-path rust-lib/Cargo.toml --no-default-features --locked
+      - name: Keep the swap reading and the test floor present
+        run: |
+          out=$(cargo test --manifest-path rust-lib/Cargo.toml --no-default-features --locked -- --list)
+          for t in decoder::tests::a_swap_reads_as_what_it_does_here_too \
+                   decoder::tests::a_known_address_reads_as_verified; do
+            echo "$out" | grep -q "^$t: test$" || { echo "MISSING: $t"; exit 1; }
+          done
+          n=$(echo "$out" | grep -c ': test$')
+          echo "tests: $n"; [ "$n" -ge 24 ]

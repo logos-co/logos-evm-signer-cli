@@ -12,7 +12,7 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 serde_json = "1"
-logos_tx_decoder = { git = "https://github.com/logos-co/logos-tx-decoder", rev = "ca2e4193bff09ec4d225bf19ebcf5d2f3ab56bbb" }
+logos_tx_decoder = { git = "https://github.com/logos-co/logos-tx-decoder", rev = "b051b3a16a9880669611431d3bebdd32514fcc34" }
 logos-rust-sdk = { path = "../logos-rust-sdk-src", optional = true }
 
 [features]

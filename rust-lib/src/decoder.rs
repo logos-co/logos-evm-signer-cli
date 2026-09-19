@@ -7,7 +7,7 @@
 //!
 //! Offline on every path, and additive: nothing here replaces a keystore line.
 
-use logos_tx_decoder::{decode_call, describe, parse_render_lines, AbiDb};
+use logos_tx_decoder::{read_request, AbiDb};
 
 use crate::tokenlist;
 use std::sync::OnceLock;
@@ -24,23 +24,24 @@ fn db() -> Option<&'static AbiDb> {
 /// keystore's own words stand alone, exactly as they did before this existed.
 pub fn interpret(render_lines: &[String]) -> Vec<String> {
     let Some(db) = db() else { return Vec::new() };
-    let scan = parse_render_lines(render_lines);
+    // The same call `evm_signer_ui` makes over the C ABI: one request, one reading, so
+    // the two surfaces cannot describe the same bytes differently.
+    let read = read_request(db, render_lines);
 
     // Label by ITEM count, not by how many decoded. A request of one message and one
     // transaction decodes to a single leg, and an unlabelled reading of it would look
     // like a description of the whole request.
-    let label = scan.items > 1;
+    let label = read.items > 1;
     let mut out = Vec::new();
-    for leg in &scan.legs {
+    for leg in &read.legs {
         if label {
             out.push(format!("Item [{}]:", leg.index));
         }
-        let decoded = decode_call(db, leg.chain_id, &leg.to, &leg.data);
-        out.extend(describe(&decoded));
+        out.extend(leg.lines.iter().cloned());
         // AFTER the decoder's own reading, never mixed into it: the decoder says what it
         // can back, and this says what a token list on this device claims. Empty when no
         // list is loaded, which is the normal state for a signing device.
-        out.extend(tokenlist::describe(leg.chain_id, &leg.to, &decoded));
+        out.extend(tokenlist::describe(leg.chain_id, &leg.to, &leg.call));
     }
     out
 }
@@ -69,6 +70,40 @@ mod tests {
         assert!(out.contains("VERIFIED"), "{out}");
         assert!(out.contains("WETH"), "{out}");
         assert!(out.contains("transfer(address,uint256)"), "{out}");
+    }
+
+    /// The Uniswap app's swap, as the keystore renders it: 0.000001 ETH for at least
+    /// 0.002621 USDT through SwapRouter02.
+    fn swap_request() -> Vec<String> {
+        let w = |h: &str| format!("{:0>64}", h);
+        let inner = format!("04e45aaf{}{}{}{}{}{}{}", w("c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"),
+                            w("dac17f958d2ee523a2206206994597c13d831ec7"), w("64"),
+                            w("a1e277ea6b97effc5b61b3bf5de03f438981247e"), w("e8d4a51000"), w("a3d"), w("0"));
+        let data = format!("0x5ae401dc{}{}{}{}{}{inner}{}", w("6aaef2e8"), w("40"), w("1"), w("20"), w("e4"), "0".repeat(56));
+        vec![
+            "Account: 0xa1E277eA6b97eFfc5b61B3BF5dE03F438981247E".into(),
+            "1 item(s) to sign:".into(),
+            "  [1] Transaction on chain 1".into(),
+            "      To: 0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45".into(),
+            "      Value: 0xe8d4a51000 (1000000000000)".into(),
+            format!("      Data: {data}"),
+        ]
+    }
+
+    #[test]
+    fn a_swap_reads_as_what_it_does_here_too() {
+        let out = interpret(&swap_request());
+        for want in [
+            "  Sends 0.000001 of the native coin with this call (value 1000000000000 wei).",
+            "  Deadline: 2026-09-19 20:39:04 UTC (deadline 1789850344); the call reverts after it.",
+            "        Sells exactly 0.000001 WETH (amountIn 1000000000000); WETH is a verified contract.",
+            "        Buys at least 0.002621 USDT (amountOutMinimum 2621); USDT is a verified contract.",
+            "        Pool fee: 0.01% (fee 100).",
+        ] {
+            assert!(out.iter().any(|l| l == want), "missing {want:?} in\n{}", out.join("\n"));
+        }
+        // Whose address the swap pays is not in the transaction, so this signer does not say.
+        assert!(!out.join("\n").contains("account signing"));
     }
 
     #[test]
