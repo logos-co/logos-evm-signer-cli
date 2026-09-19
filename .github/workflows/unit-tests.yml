@@ -19,6 +19,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.89"
+
+      # `logos-rust-sdk` is an optional path dependency: off under
+      # --no-default-features, but cargo still loads its manifest.
+      - name: Provide the optional SDK manifest
+        uses: actions/checkout@v4
+        with:
+          repository: logos-co/logos-rust-sdk
+          path: logos-rust-sdk-src
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust-lib
