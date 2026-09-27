@@ -4,19 +4,36 @@ The headless approver for `keystore_module` — what `evm_signer_ui` is in Basec
 `logosctl` daemon that has no window to show anything in.
 
 `keystore_module` signs nothing without a human. A wallet *asks* (`request_approval`), and
-only a configured **approver** may claim the request, read what the keystore says will be
+only an **approver** may claim the request, read what the keystore says will be
 signed, and answer with the vault password. `logosctl call keystore_module approve …` is
 refused on purpose: the CLI is the host anchor, not a named module. `evm_signer_cli` is a named
 module. It holds the role, shows every request over the event plane, and takes the decision
 over method calls. Nothing else changes: the keystore still authors every line the human
 reads, still checks the bundle id they echo back, and still hands the signatures only to the
-requester that holds the receipt.
+requester that holds the receipt. The keystore's built-in approver is `evm_signer_ui`; any
+other comes from the deployer's access policy.
 
 ## A session
 
+The daemon's access policy grants `evm_signer_cli` the keystore methods it calls, as a
+**list**. A `"*"` grant would not do: the keystore admits an approval only when the runtime
+checked the call against a list of methods, or when it comes from its built-in approver.
+`"*"` and `"@op:*"` leave every other caller, operators included, to the keystore's own
+roles. The policy is set before the daemon starts; with a `keystore_module` rule of your
+own, add only the `evm_signer_cli` entry.
+
+```yaml
+# daemon.yaml
+access_policy: |
+  {"version": 2, "mode": "explicit", "restrictions": {"keystore_module": {"allowedCallers": {
+    "evm_signer_cli": ["pending", "acknowledge", "approve", "reject", "caller_identity"],
+    "*": "*", "@op:*": "*"}}}}
+```
+
 ```bash
-# once per daemon — configure is TOTAL, so restate the GUI surfaces alongside
-logosctl call keystore_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_keystore_ui","evm_keystore_cli"]}'
+logosctl daemon config set ./daemon.yaml     # before the daemon starts
+logosctl daemon start --detach
+logosctl module load keystore_module
 logosctl module load evm_signer_cli
 ```
 
@@ -106,7 +123,7 @@ the [logos-eth-wallet-backend README](https://github.com/logos-co/logos-eth-wall
 
 | Method | Does |
 |---|---|
-| `status()` | `{ok, held, identity, approvers, custodians, rendered, pending_count, last_error, hint}` — `held` says whether this module is a configured approver; `hint` is the exact `configure` command when it is not |
+| `status()` | `{ok, held, identity, approvers, custodians, rendered, pending_count, last_error, hint}` — `held` says whether the keystore admits this module as an approver (its call was checked against the policy's list, or it is the built-in approver); `hint` is the access policy that grants it when it is not |
 | `list()` | the keystore's queue summaries — never leg detail |
 | `show(handle)` | claim `handle` for display: the keystore's lines, verbatim, this signer's `interpretation_lines`, plus the prompt text |
 | `approve(handle, bundle_id, password)` | the human said yes to the request on screen; `{ok, handle, signed_count}` |
@@ -161,9 +178,9 @@ not in `0.3.0-rc.1` or earlier. Nothing this module returns is secret either way
 - **No unattended approval.** Every `approve` names the handle and the bundle id a human
   read. Automated tests use the `approver_probe` fixture in `logos-eth-wallet-backend`.
 - **No signatures here.** Only the requester can collect them, with its receipt.
-- **No self-enrolment.** `configure` is ungated and total; a module naming itself would be
-  the exposure the keystore's spec defers, and two doing so would race. The operator names
-  the roles; `status` says what to run.
+- **No self-enrolment.** The approver's methods come only from the access policy, which the
+  daemon takes before it starts; nothing a module calls can grant them. `status` shows the
+  policy that would.
 - **No judgement about the account.** The reading covers the transaction and its own
   fields — chain, recipient, value, calldata — because that is what a signature covers.
   Whether an address a call pays is the one signing is not among them, and no line says.

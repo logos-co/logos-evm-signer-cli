@@ -100,33 +100,33 @@ pub fn normalise_bundle_id(s: &str) -> String {
     s.trim().trim_start_matches("0x").to_ascii_lowercase()
 }
 
-/// The exact `configure` command that adds `me` to `role` while keeping every name
-/// already in force — `configure` is total, so a hint naming only `me` would strip
-/// the GUI surfaces.
-pub fn configure_hint(identity: &Value, me: &str, role: &str) -> String {
-    let list = |key: &str| -> Vec<String> {
-        identity
-            .get(key)
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
-            .unwrap_or_default()
-    };
-    let mut approvers = list("approvers");
-    let mut custodians = list("custodians");
-    let target = if role == "approvers" { &mut approvers } else { &mut custodians };
-    if !target.iter().any(|n| n == me) {
-        target.push(me.to_string());
-    }
-    let doc = json!({ "approvers": approvers, "custodians": custodians });
-    format!("logosctl call keystore_module configure '{doc}'")
+/// Every keystore method this module calls, and so the list the deployer's access policy
+/// grants it at `keystore_module`. A list: a `"*"` grant is not scoped, and the keystore
+/// admits Tier A only on a scoped call or from its built-in approver.
+pub const KEYSTORE_METHODS: &[&str] = &["pending", "acknowledge", "approve", "reject", "caller_identity"];
+
+/// The access policy granting `me` its `methods` at keystore_module, which leaves every other
+/// caller, operators included, to the keystore's own roles. With a keystore_module rule of
+/// your own, add only the `me` entry.
+pub fn policy_hint(me: &str, methods: &[&str]) -> String {
+    let mut callers = serde_json::Map::new();
+    callers.insert(me.to_string(), json!(methods));
+    callers.insert("*".to_string(), json!("*"));
+    callers.insert("@op:*".to_string(), json!("*"));
+    let doc = json!({ "version": 2, "mode": "explicit",
+                      "restrictions": { "keystore_module": { "allowedCallers": Value::Object(callers) } } });
+    format!("grant it in the daemon's access_policy and restart the daemon: {doc}")
 }
 
+/// Whether the keystore admits `me` in `role`: the runtime checked its call against a method
+/// list the policy grants it (`scoped`), or it is the keystore's built-in holder of `role`.
 pub fn holds(identity: &Value, me: &str, role: &str) -> bool {
-    identity
-        .get(role)
-        .and_then(Value::as_array)
-        .map(|a| a.iter().any(|v| v.as_str() == Some(me)))
-        .unwrap_or(false)
+    identity.get("scoped").and_then(Value::as_bool) == Some(true)
+        || identity
+            .get(role)
+            .and_then(Value::as_array)
+            .map(|a| a.iter().any(|v| v.as_str() == Some(me)))
+            .unwrap_or(false)
 }
 
 /// Best-effort: overwrite the bytes before the allocation is returned.
@@ -232,24 +232,26 @@ mod tests {
     }
 
     #[test]
-    fn the_hint_is_total_safe() {
-        let id = json!({ "approvers": ["evm_signer_ui"], "custodians": ["evm_keystore_ui"] });
-        let hint = configure_hint(&id, "evm_signer_cli", "approvers");
-        assert_eq!(
-            hint,
-            r#"logosctl call keystore_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_keystore_ui"]}'"#
-        );
-        let already = json!({ "approvers": ["evm_signer_ui", "evm_signer_cli"], "custodians": [] });
-        assert!(configure_hint(&already, "evm_signer_cli", "approvers").contains(r#""approvers":["evm_signer_ui","evm_signer_cli"]"#));
-        let empty = json!({ "ok": true });
-        assert!(configure_hint(&empty, "evm_signer_cli", "approvers").contains(r#"{"approvers":["evm_signer_cli"],"custodians":[]}"#));
+    fn the_hint_is_a_policy_granting_every_method_called() {
+        let hint = policy_hint("evm_signer_cli", KEYSTORE_METHODS);
+        let doc: Value = serde_json::from_str(&hint[hint.find('{').unwrap()..]).unwrap();
+        assert_eq!(doc["version"], 2);
+        assert_eq!(doc["mode"], "explicit");
+        let callers = &doc["restrictions"]["keystore_module"]["allowedCallers"];
+        assert_eq!(callers["evm_signer_cli"], json!(["pending", "acknowledge", "approve", "reject", "caller_identity"]));
+        assert_eq!(callers["*"], "*");
+        assert_eq!(callers["@op:*"], "*");
+        assert_eq!(callers.as_object().unwrap().len(), 3);
     }
 
     #[test]
-    fn holds_reads_the_role_list() {
-        let id = json!({ "approvers": ["evm_signer_ui", "evm_signer_cli"], "custodians": ["evm_keystore_ui"] });
-        assert!(holds(&id, "evm_signer_cli", "approvers"));
-        assert!(!holds(&id, "evm_signer_cli", "custodians"));
+    fn holds_is_a_scoped_call_or_the_built_in_role() {
+        let scoped = json!({ "scoped": true, "approvers": ["evm_signer_ui"] });
+        assert!(holds(&scoped, "evm_signer_cli", "approvers"));
+        let unscoped = json!({ "scoped": false, "approvers": ["evm_signer_ui"] });
+        assert!(!holds(&unscoped, "evm_signer_cli", "approvers"));
+        assert!(holds(&unscoped, "evm_signer_ui", "approvers"));
+        assert!(!holds(&unscoped, "evm_signer_ui", "custodians"));
         assert!(!holds(&json!({}), "evm_signer_cli", "approvers"));
     }
 
