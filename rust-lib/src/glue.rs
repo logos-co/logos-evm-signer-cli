@@ -5,7 +5,7 @@
 //! held only for reads and writes, never across a call, so `status()` always answers.
 
 use crate::decoder::interpret;
-use crate::prompt::{configure_hint, holds, normalise_bundle_id, render, scrub, strip_file_newline, Rendered};
+use crate::prompt::{holds, normalise_bundle_id, policy_hint, render, scrub, strip_file_newline, Rendered, KEYSTORE_METHODS};
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -238,7 +238,7 @@ impl EvmSignerCliModuleImpl {
             })),
             "pending_count": st.queue.len(),
             "last_error": st.last_error.as_deref().filter(|e| !(held && *e == "not authorized")),
-            "hint": if held { Value::Null } else { Value::String(configure_hint(&id, ME, "approvers")) },
+            "hint": if held { Value::Null } else { Value::String(policy_hint(ME, KEYSTORE_METHODS)) },
         })
         .to_string()
     }

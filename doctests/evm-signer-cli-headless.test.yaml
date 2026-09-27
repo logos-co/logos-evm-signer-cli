@@ -4,9 +4,9 @@ release: ""
 
 intro: |
   `keystore_module` signs nothing without a human. A module *asks* (`request_approval`),
-  and only a configured **approver** may claim the request, read what the keystore says
+  and only an **approver** may claim the request, read what the keystore says
   will be signed, and answer with the vault password. In Basecamp that approver is
-  `evm_signer_ui`. On a headless `logosctl` daemon there is no window to show anything in —
+  `evm_signer_ui`, the keystore's built-in one. On a headless `logosctl` daemon there is no window to show anything in —
   and `logosctl call keystore_module approve …` is refused, deliberately, because the
   CLI is the host anchor and not a named module.
 
@@ -18,7 +18,7 @@ intro: |
 
 what_you_learn:
   - Why the CLI cannot approve a signature on its own, and how a named module can
-  - How to name `evm_signer_cli` an approver without stripping `evm_signer_ui`
+  - How the daemon's access policy grants `evm_signer_cli` the approver's methods, and why a `"*"` grant would not
   - How a request appears on `logosctl watch`, in the keystore's own words
   - How the signer's own offline reading of the calldata is shown, and how it is labelled
   - How to approve with the handle and the bundle id you read, and why both are checked
@@ -38,12 +38,13 @@ sections:
   - title: "Build logosctl"
     step: true
     text: |
-      Build the CLI from its published flake. The daemon must be a current one: an
-      older `logosctl` reports every caller as `unknown`, and then no tier admits anyone.
+      Build the CLI from its method-scopes branch until it merges: the daemon must grant
+      methods per caller (version 2 access policies). An older `logosctl` reports every
+      caller as `unknown`, and then no tier admits anyone.
     steps:
       - title: "Build the CLI"
-        run: 'nix build "github:logos-co/logos-logoscore-cli{release}#ctl" --out-link ./logos'
-        code_block: "nix build 'github:logos-co/logos-logoscore-cli#ctl' --out-link ./logos"
+        run: 'nix build "github:logos-co/logos-logoscore-cli/feat/method-scopes#ctl" --out-link ./logos'
+        code_block: "nix build 'github:logos-co/logos-logoscore-cli/feat/method-scopes#ctl' --out-link ./logos"
         check_file: "logos/bin/logosctl"
       - run: "./logos/bin/logosctl --version"
         expect_contains:
@@ -60,8 +61,8 @@ sections:
       the bundled `capability_module` that handles the load-time handshake.
     steps:
       - title: "Build keystore_module"
-        run: 'nix build "github:logos-co/logos-evm-keystore-module#install" --out-link ./result-keystore'
-        code_block: "nix build 'github:logos-co/logos-evm-keystore-module#install' --out-link ./result-keystore"
+        run: 'nix build "github:logos-co/logos-evm-keystore-module/feat/method-scopes#install" --out-link ./result-keystore'
+        code_block: "nix build 'github:logos-co/logos-evm-keystore-module/feat/method-scopes#install' --out-link ./result-keystore"
         check_file: "result-keystore/modules/keystore_module/manifest.json"
       - title: "Build evm_signer_cli"
         run: 'nix build "github:logos-co/logos-evm-signer-cli{release}#install" --out-link ./result-signer'
@@ -136,28 +137,68 @@ sections:
           - "not authorized"
       - title: "evm_signer_cli is not an approver yet either"
         text: |
-          Until something calls `configure`, the keystore's built-in defaults stand:
-          `evm_signer_ui` approves, `evm_keystore_ui` mutates. `status` says so, and names the
-          exact command that fixes it — built from the names currently in force, because
-          `configure` is **total**: a document that names only `evm_signer_cli` would strip
-          `evm_signer_ui`.
+          The daemon runs without an access policy, so the keystore's built-in roles stand:
+          `evm_signer_ui` approves, `evm_keystore_ui` mutates. `status` says so, and its hint
+          is the policy that grants `evm_signer_cli` the approver's methods.
         run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli status --human"
         code_block: "logosctl call evm_signer_cli status"
         expect_contains:
           - '"held":false'
-          - "logosctl call keystore_module configure"
+          - "restart the daemon"
 
-  - title: "Name the roles"
+  - title: "Grant the methods"
     step: true
+    text: |
+      Who may approve is the deployer's decision, made in the daemon's **access policy**
+      before it starts. Nothing a caller does at runtime can change it. The policy grants
+      `evm_signer_cli` the keystore methods it calls, **as a list**. A `"*"` grant would let
+      its calls through to the keystore and no further. The keystore admits an approval only
+      when the runtime checked the call against a list of methods, or when it comes from the
+      built-in approver. For this run, it also grants the fixture the one mutation it needs,
+      `import_private_key`, beside the requester's methods. `"*"` and `"@op:*"` leave every
+      other caller, operators included, to the keystore's own roles.
     steps:
-      - title: "Configure both roles in one call"
+      - title: "Stop the daemon"
+        run: "./logos/bin/logosctl --config-dir ./session daemon stop"
+        code_block: "logosctl daemon stop"
+      - run: "sleep 3"
+      - title: "Write the policy into the daemon's config"
         run: |
-          ./logos/bin/logosctl --config-dir ./session call keystore_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_signer_cli_probe"]}' --human
+          cat > daemon.yaml <<'EOF'
+          access_policy: |
+            {"version": 2, "mode": "explicit", "restrictions": {"keystore_module": {"allowedCallers": {
+              "evm_signer_cli": ["pending", "acknowledge", "approve", "reject", "caller_identity"],
+              "evm_signer_cli_probe": ["import_private_key", "request_approval", "approval_status",
+                "fetch_result", "ack_result", "cancel_approval"],
+              "*": "*", "@op:*": "*"}}}}
+          EOF
+          ./logos/bin/logosctl --config-dir ./session daemon config set ./daemon.yaml
         code_block: |
-          logosctl call keystore_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_signer_cli_probe"]}'
+          cat > daemon.yaml <<'EOF'
+          access_policy: |
+            {"version": 2, "mode": "explicit", "restrictions": {"keystore_module": {"allowedCallers": {
+              "evm_signer_cli": ["pending", "acknowledge", "approve", "reject", "caller_identity"],
+              "evm_signer_cli_probe": ["import_private_key", "request_approval", "approval_status",
+                "fetch_result", "ack_result", "cancel_approval"],
+              "*": "*", "@op:*": "*"}}}}
+          EOF
+          logosctl daemon config set ./daemon.yaml
+      - title: "Start the daemon again"
+        run: "./logos/bin/logosctl --config-dir ./session daemon start --detach"
+        code_block: "logosctl daemon start --detach"
+      - run: "sleep 3"
+      - title: "Load the three modules again"
+        run: |
+          ./logos/bin/logosctl --config-dir ./session module load keystore_module
+          ./logos/bin/logosctl --config-dir ./session module load evm_signer_cli
+          ./logos/bin/logosctl --config-dir ./session module load evm_signer_cli_probe
+        code_block: |
+          logosctl module load keystore_module
+          logosctl module load evm_signer_cli
+          logosctl module load evm_signer_cli_probe
         expect_contains:
-          - '"evm_signer_cli"'
-          - '"evm_signer_cli_probe"'
+          - "evm_signer_cli_probe"
+      - run: "sleep 2"
       - title: "evm_signer_cli now holds the role"
         run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli status --human"
         code_block: "logosctl call evm_signer_cli status"
@@ -167,7 +208,7 @@ sections:
       - title: "Import the test key"
         text: |
           The fixture imports Foundry's well-known account 0 under the vault password
-          `doctest-pw`. A Tier D call, admitted only because the document above named it.
+          `doctest-pw`. A Tier D call, admitted only because the policy lists it for the fixture.
         run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe setup --human"
         code_block: "logosctl call evm_signer_cli_probe setup"
         expect_contains:
