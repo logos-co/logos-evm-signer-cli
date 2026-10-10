@@ -3,7 +3,7 @@
 use serde_json::{json, Value};
 
 /// A request this module has claimed for display. `claim_lines` and `render_lines`
-/// are the keystore's two lists and are never merged; `interpretation_lines` is this
+/// are the signer manager's two lists and are never merged; `interpretation_lines` is this
 /// signer's own reading of `render_lines`, decoded offline and never substituted for
 /// either.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -42,8 +42,8 @@ pub fn render(r: &Rendered) -> String {
 
     out.push(THIN.into());
     section(&mut out, 2, "What you are signing", &[
-        "The keystore's own reading of the request, shown in full and",
-        "never shortened. This is what the signature will cover.",
+        "The signer manager's own reading of the request, shown in full",
+        "and never shortened. This is what the signature will cover.",
     ]);
     out.extend(indented(&r.render_lines));
 
@@ -76,7 +76,7 @@ pub fn render(r: &Rendered) -> String {
 ///
 /// A section heading sits at column 0, so a value carrying an embedded newline would
 /// otherwise put attacker-chosen text there — a complete forged section 3, claiming
-/// VERIFIED over bytes this signer never decoded. The keystore refuses bidi, zero-width
+/// VERIFIED over bytes this signer never decoded. The manager refuses bidi, zero-width
 /// and nul but deliberately admits newlines (a message may legitimately contain one),
 /// so containment is this renderer's job. The GUI gets it for free: each line is its own
 /// bounded delegate.
@@ -102,7 +102,7 @@ pub fn normalise_bundle_id(s: &str) -> String {
 
 /// The exact `configure` command that adds `me` to `role` while keeping every name
 /// already in force — `configure` is total, so a hint naming only `me` would strip
-/// the GUI surfaces.
+/// the GUI surfaces, and one without the signers would leave nothing to sign.
 pub fn configure_hint(identity: &Value, me: &str, role: &str) -> String {
     let list = |key: &str| -> Vec<String> {
         identity
@@ -113,12 +113,16 @@ pub fn configure_hint(identity: &Value, me: &str, role: &str) -> String {
     };
     let mut approvers = list("approvers");
     let mut custodians = list("custodians");
+    let mut signers = list("signers");
+    if signers.is_empty() {
+        signers.push("keystore_module".into());
+    }
     let target = if role == "approvers" { &mut approvers } else { &mut custodians };
     if !target.iter().any(|n| n == me) {
         target.push(me.to_string());
     }
-    let doc = json!({ "approvers": approvers, "custodians": custodians });
-    format!("logosctl call keystore_module configure '{doc}'")
+    let doc = json!({ "approvers": approvers, "custodians": custodians, "signers": signers });
+    format!("logosctl call signer_manager_module configure '{doc}'")
 }
 
 pub fn holds(identity: &Value, me: &str, role: &str) -> bool {
@@ -141,7 +145,7 @@ mod tests {
 
     fn sample() -> Rendered {
         Rendered {
-            handle: "ksh_abc".into(),
+            handle: "smh_abc".into(),
             bundle_id: "8c1e".into(),
             requester: "eth_wallet_backend".into(),
             claim_lines: vec!["Purpose (claimed by the requester): Send 1 ETH".into()],
@@ -162,12 +166,12 @@ mod tests {
         let weth = text.find("  Interpreted: WETH — VERIFIED").unwrap();
         assert!(claim < purpose && purpose < signed && signed < account);
         assert!(account < read && read < weth);
-        assert!(text.contains("approve:  logosctl call evm_signer_cli approve ksh_abc 8c1e @/path/to/pwfile"));
-        assert!(text.ends_with(&format!("reject:   logosctl call evm_signer_cli reject ksh_abc\n{RULE}")));
+        assert!(text.contains("approve:  logosctl call evm_signer_cli approve smh_abc 8c1e @/path/to/pwfile"));
+        assert!(text.ends_with(&format!("reject:   logosctl call evm_signer_cli reject smh_abc\n{RULE}")));
     }
 
     #[test]
-    fn every_keystore_line_survives_untouched() {
+    fn every_manager_line_survives_untouched() {
         let mut r = sample();
         r.render_lines = vec!["  [1] Transaction on chain 1".into(), "Data: 0xa9059cbb".into()];
         let text = render(&r);
@@ -226,23 +230,25 @@ mod tests {
     }
 
     #[test]
-    fn bundle_ids_normalise_like_the_keystore() {
+    fn bundle_ids_normalise_like_the_manager() {
         assert_eq!(normalise_bundle_id(" 0xAB12 "), "ab12");
         assert_eq!(normalise_bundle_id("ab12"), "ab12");
     }
 
     #[test]
     fn the_hint_is_total_safe() {
-        let id = json!({ "approvers": ["evm_signer_ui"], "custodians": ["evm_keystore_ui"] });
+        let id = json!({ "approvers": ["evm_signer_ui"], "custodians": ["evm_keystore_ui"], "signers": ["keystore_module", "ledger_module"] });
         let hint = configure_hint(&id, "evm_signer_cli", "approvers");
         assert_eq!(
             hint,
-            r#"logosctl call keystore_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_keystore_ui"]}'"#
+            r#"logosctl call signer_manager_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_keystore_ui"],"signers":["keystore_module","ledger_module"]}'"#
         );
         let already = json!({ "approvers": ["evm_signer_ui", "evm_signer_cli"], "custodians": [] });
         assert!(configure_hint(&already, "evm_signer_cli", "approvers").contains(r#""approvers":["evm_signer_ui","evm_signer_cli"]"#));
+        // Nothing read back still names a signer: a total document without one would sign nothing.
         let empty = json!({ "ok": true });
-        assert!(configure_hint(&empty, "evm_signer_cli", "approvers").contains(r#"{"approvers":["evm_signer_cli"],"custodians":[]}"#));
+        assert!(configure_hint(&empty, "evm_signer_cli", "approvers")
+            .contains(r#"{"approvers":["evm_signer_cli"],"custodians":[],"signers":["keystore_module"]}"#));
     }
 
     #[test]

@@ -1,13 +1,13 @@
 {
   "name": "evm_signer_cli_probe",
   "version": "1.0.0",
-  "description": "Doc-test fixture: a Tier B requester that is also the custodian. Imports a known key, asks the keystore for a signature on demand, and reports what came of it.",
+  "description": "Doc-test fixture: a requester of the signer manager that is also the keystore's custodian. Imports a known key, asks the manager for a signature on demand, and reports what came of it.",
   "author": "Logos Core Team",
   "type": "core",
   "interface": "cdylib",
   "category": "test",
   "main": "evm_signer_cli_probe_plugin",
-  "dependencies": ["keystore_module"],
+  "dependencies": ["keystore_module", "signer_manager_module"],
   "include": [],
   "capabilities": [],
   "codegen": {

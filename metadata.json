@@ -1,7 +1,7 @@
 {
   "name": "evm_signer_cli",
   "version": "0.1.0",
-  "description": "Headless approver for keystore_module: shows what a module asked to sign, in the keystore's own words, over `logosctl watch`, and takes the decision over `logosctl call`.",
+  "description": "Headless approver for signer_manager_module: shows what a module asked to sign, in the manager's own words, over `logosctl watch`, and takes the decision over `logosctl call`.",
   "author": "Logos Core Team",
   "type": "core",
   "interface": "cdylib",
@@ -9,7 +9,7 @@
   "category": "wallet",
   "main": "evm_signer_cli_plugin",
   "dependencies": [
-    { "name": "keystore_module", "version": "~0.1.0" }
+    { "name": "signer_manager_module", "version": "~0.1.0" }
   ],
   "optional_dependencies": [
     { "name": "token_list_module", "version": "~0.1.0" }

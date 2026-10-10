@@ -124,7 +124,7 @@ fn amount(d: &DecodedCall, decimals: u8) -> Option<String> {
     scale(raw, decimals)
 }
 
-/// Exact, never rounded — the same rule the keystore's own figures follow. A value this
+/// Exact, never rounded — the same rule the manager's own figures follow. A value this
 /// cannot read scales to nothing rather than to a guess.
 fn scale(raw: &str, decimals: u8) -> Option<String> {
     if raw.is_empty() || !raw.bytes().all(|b| b.is_ascii_digit()) {

@@ -1,22 +1,23 @@
 # evm_signer_cli
 
-The headless approver for `keystore_module` — what `evm_signer_ui` is in Basecamp, for a
+The headless approver for `signer_manager_module` — what `evm_signer_ui` is in Basecamp, for a
 `logosctl` daemon that has no window to show anything in.
 
-`keystore_module` signs nothing without a human. A wallet *asks* (`request_approval`), and
-only a configured **approver** may claim the request, read what the keystore says will be
-signed, and answer with the vault password. `logosctl call keystore_module approve …` is
-refused on purpose: the CLI is the host anchor, not a named module. `evm_signer_cli` is a named
-module. It holds the role, shows every request over the event plane, and takes the decision
-over method calls. Nothing else changes: the keystore still authors every line the human
-reads, still checks the bundle id they echo back, and still hands the signatures only to the
-requester that holds the receipt.
+[`signer_manager_module`](https://github.com/logos-co/logos-signer-manager-module) has nothing
+signed without a human. A wallet *asks* (`request_approval`), and only a configured **approver**
+may claim the request, read what the manager says will be signed, and answer with the vault
+password; the manager then has the account's signer (`keystore_module` for keys kept in files)
+sign. `logosctl call signer_manager_module approve …` is refused on purpose: the CLI is the host
+anchor, not a named module. `evm_signer_cli` is a named module. It holds the role, shows every
+request over the event plane, and takes the decision over method calls. Nothing else changes:
+the manager still authors every line the human reads, still checks the bundle id they echo
+back, and still hands the signatures only to the requester that holds the receipt.
 
 ## A session
 
 ```bash
-# once per daemon — configure is TOTAL, so restate the GUI surfaces alongside
-logosctl call keystore_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_keystore_ui","evm_keystore_cli"]}'
+# once per daemon — configure is TOTAL, so restate the GUI surfaces and the signers alongside
+logosctl call signer_manager_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_keystore_ui"],"signers":["keystore_module"]}'
 logosctl module load evm_signer_cli
 ```
 
@@ -28,10 +29,10 @@ logosctl watch evm_signer_cli --event prompt      # or without --event, to see s
 
 ```text
 [12:00:01] evm_signer_cli :: prompt
-  arg0: ksh_3f2a…
+  arg0: smh_3f2a…
   arg1:
 ================================================================
-SIGNING REQUEST  ksh_3f2a…
+SIGNING REQUEST  smh_3f2a…
 ----------------------------------------------------------------
 1.  Requested by: eth_wallet_backend
     What that app says this is for. Its own words — this signer
@@ -39,8 +40,8 @@ SIGNING REQUEST  ksh_3f2a…
   Purpose (claimed by the requester): Send 0.1 WETH
 ----------------------------------------------------------------
 2.  What you are signing
-    The keystore's own reading of the request, shown in full and
-    never shortened. This is what the signature will cover.
+    The signer manager's own reading of the request, shown in full
+    and never shortened. This is what the signature will cover.
   Account: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
   Commitment: 8c1e9f2b…
   1 item(s) to sign:
@@ -59,8 +60,8 @@ SIGNING REQUEST  ksh_3f2a…
       wad: 100000000000000000
     In WETH units: 0.1 WETH
 ----------------------------------------------------------------
-approve:  logosctl call evm_signer_cli approve ksh_3f2a… 8c1e… @/path/to/pwfile
-reject:   logosctl call evm_signer_cli reject ksh_3f2a…
+approve:  logosctl call evm_signer_cli approve smh_3f2a… 8c1e… @/path/to/pwfile
+reject:   logosctl call evm_signer_cli reject smh_3f2a…
 ================================================================
 ```
 
@@ -68,8 +69,8 @@ Terminal 2, when you have read it:
 
 ```bash
 umask 077; printf '%s\n' 'vault password' > /run/user/501/pw
-logosctl call evm_signer_cli approve ksh_3f2a… 8c1e… @/run/user/501/pw
-# → {"ok":true,"handle":"ksh_3f2a…","signed_count":1}
+logosctl call evm_signer_cli approve smh_3f2a… 8c1e… @/run/user/501/pw
+# → {"ok":true,"handle":"smh_3f2a…","signed_count":1}
 ```
 
 Three sections, in this order and never merged. Section 1 is the requester's own account of
@@ -107,15 +108,15 @@ the [logos-eth-wallet-backend README](https://github.com/logos-co/logos-eth-wall
 | Method | Does |
 |---|---|
 | `status()` | `{ok, held, identity, approvers, custodians, rendered, pending_count, last_error, hint}` — `held` says whether this module is a configured approver; `hint` is the exact `configure` command when it is not |
-| `list()` | the keystore's queue summaries — never leg detail |
-| `show(handle)` | claim `handle` for display: the keystore's lines, verbatim, this signer's `interpretation_lines`, plus the prompt text |
+| `list()` | the manager's queue summaries — never leg detail |
+| `show(handle)` | claim `handle` for display: the manager's lines, verbatim, this signer's `interpretation_lines`, plus the prompt text |
 | `approve(handle, bundle_id, password)` | the human said yes to the request on screen; `{ok, handle, signed_count}` |
 | `reject(handle)` | the human said no; `bool` |
 | `refresh()` | re-read the queue now, then answer as `status` does |
 
 `approve` binds three things and refuses before the password is used if any is off: the
 handle must be the one on screen, the bundle id must be the one shown, and the request is
-re-claimed from the keystore so a record another approver displaced, or one that settled
+re-claimed from the manager so a record another approver displaced, or one that settled
 meanwhile, is caught here rather than by a spent password. The reply is a **count**: an
 approver causes signatures to exist and never receives them.
 
@@ -124,7 +125,7 @@ approver causes signatures to exist and never receives them.
 | Event | Says |
 |---|---|
 | `prompt(handle, text)` | a request is on screen; `text` is the whole block above |
-| `settled(handle, state)` | `approved` / `rejected`, relayed from the keystore; `gone` when the poll finds a request vanished — the keystore never announces a cancelled or expired one |
+| `settled(handle, state)` | `approved` / `rejected` / `cancelled`, relayed from the manager; `gone` a poll after a request vanished unannounced — the manager never announces one that expired unclaimed |
 | `queue_changed(count)` | how many are waiting |
 
 `evm_signer_cli` claims the head of the queue the moment it is offered, as `evm_signer_ui` does:
@@ -162,7 +163,7 @@ not in `0.3.0-rc.1` or earlier. Nothing this module returns is secret either way
   read. Automated tests use the `approver_probe` fixture in `logos-eth-wallet-backend`.
 - **No signatures here.** Only the requester can collect them, with its receipt.
 - **No self-enrolment.** `configure` is ungated and total; a module naming itself would be
-  the exposure the keystore's spec defers, and two doing so would race. The operator names
+  the exposure the manager's spec defers, and two doing so would race. The operator names
   the roles; `status` says what to run.
 - **No judgement about the account.** The reading covers the transaction and its own
   fields — chain, recipient, value, calldata — because that is what a signature covers.
