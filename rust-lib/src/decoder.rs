@@ -1,11 +1,11 @@
 //! What this signer makes of the lines it is showing.
 //!
-//! The keystore hands an approver `render_lines` and nothing else — no structured
+//! The signer manager hands an approver `render_lines` and nothing else — no structured
 //! `to` or `data` — and that turns out to be the right input rather than a
 //! limitation: an interpretation derived from the displayed text cannot describe
 //! different bytes than the human is reading.
 //!
-//! Offline on every path, and additive: nothing here replaces a keystore line.
+//! Offline on every path, and additive: nothing here replaces a line of the manager's.
 
 use logos_tx_decoder::{read_request, AbiDb};
 
@@ -21,7 +21,7 @@ fn db() -> Option<&'static AbiDb> {
 
 /// The lines of section 3. Empty is NORMAL — a message, a digest, or a selector this
 /// signer does not know — and is never an error: the prompt drops the section and the
-/// keystore's own words stand alone, exactly as they did before this existed.
+/// manager's own words stand alone, exactly as they did before this existed.
 pub fn interpret(render_lines: &[String]) -> Vec<String> {
     let Some(db) = db() else { return Vec::new() };
     // The same call `evm_signer_ui` makes over the C ABI: one request, one reading, so
@@ -72,7 +72,7 @@ mod tests {
         assert!(out.contains("transfer(address,uint256)"), "{out}");
     }
 
-    /// The Uniswap app's swap, as the keystore renders it: 0.000001 ETH for at least
+    /// The Uniswap app's swap, as the manager renders it: 0.000001 ETH for at least
     /// 0.002621 USDT through SwapRouter02.
     fn swap_request() -> Vec<String> {
         let w = |h: &str| format!("{:0>64}", h);

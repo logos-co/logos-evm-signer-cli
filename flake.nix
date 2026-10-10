@@ -1,10 +1,11 @@
 {
-  description = "evm_signer_cli — the headless approver for keystore_module, driven over logosctl.";
+  description = "evm_signer_cli — the headless approver for signer_manager_module, driven over logosctl.";
 
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";
-    keystore_module = {
-      url = "github:logos-co/logos-evm-keystore-module";
+    # Pinned to the manager's first branch until it reaches main.
+    signer_manager_module = {
+      url = "github:logos-co/logos-signer-manager-module/67859da29c14e1ffe1da306e0c31fdafb33a0a02";
       inputs.logos-module-builder.follows = "logos-module-builder";
     };
     # OPTIONAL. Named so the generated client exists; never loaded on its account, and

@@ -1,7 +1,7 @@
 //! Logos glue for `evm_signer_cli`: a Tier A approver that shows each request over the
 //! event plane and takes the decision over method calls.
 //!
-//! One worker thread owns every keystore-facing sequence through `lane`; `state` is
+//! One worker thread owns every manager-facing sequence through `lane`; `state` is
 //! held only for reads and writes, never across a call, so `status()` always answers.
 
 use crate::decoder::interpret;
@@ -11,16 +11,16 @@ use std::time::Duration;
 
 const ME: &str = "evm_signer_cli";
 const POLL: Duration = Duration::from_secs(1);
-const KS_TIMEOUT: Duration = Duration::from_secs(5);
-/// Scrypt runs inside the keystore's `approve`; the spec asks for a deadline well above it.
+const CALL_TIMEOUT: Duration = Duration::from_secs(5);
+/// The keystore's scrypt runs inside the manager's `approve`; the deadline sits well above it.
 const APPROVE_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub trait EvmSignerCliModule: Send + Sync + 'static {
     /// `{ ok, held, identity, approvers, custodians, rendered, pending_count, last_error, hint }`.
     fn status(&self) -> String;
-    /// The keystore's queue summaries — never leg detail.
+    /// The signer manager's queue summaries — never leg detail.
     fn list(&self) -> String;
-    /// Claim `handle` for display: the keystore's lines, verbatim, this signer's own
+    /// Claim `handle` for display: the manager's lines, verbatim, this signer's own
     /// reading of them, and the prompt text.
     fn show(&self, handle: String) -> String;
     /// The human said yes to the request on screen. `bundle_id` must be the value shown.
@@ -35,7 +35,7 @@ pub trait EvmSignerCliModule: Send + Sync + 'static {
 pub trait EvmSignerCliModuleEvents {
     /// A request is on screen. `text` is the whole block a human reads.
     fn prompt(&self, handle: String, text: String);
-    /// `approved` | `rejected` from the keystore; `gone` when the poll finds it vanished.
+    /// `approved` | `rejected` from the manager; `gone` when the poll finds it vanished.
     fn settled(&self, handle: String, state: String);
     fn queue_changed(&self, count: i64);
 }
@@ -47,6 +47,8 @@ struct State {
     rendered: Option<Rendered>,
     queue: Vec<Value>,
     last_error: Option<String>,
+    /// Left the queue unannounced; called `gone` only after a poll in which the manager could say why.
+    vanished: Vec<(String, std::time::Instant)>,
 }
 
 #[derive(Default)]
@@ -66,7 +68,7 @@ fn err(msg: impl Into<String>) -> String {
 }
 
 fn parse(reply: Result<String, impl std::fmt::Debug>) -> Result<Value, String> {
-    let raw = reply.map_err(|e| format!("keystore unreachable: {e:?}"))?;
+    let raw = reply.map_err(|e| format!("signer manager unreachable: {e:?}"))?;
     let v: Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
     if v.get("ok").and_then(Value::as_bool) == Some(true) {
         Ok(v)
@@ -77,7 +79,7 @@ fn parse(reply: Result<String, impl std::fmt::Debug>) -> Result<Value, String> {
 
 fn identity() -> Value {
     modules()
-        .keystore_module
+        .signer_manager_module
         .caller_identity()
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
@@ -85,7 +87,7 @@ fn identity() -> Value {
 }
 
 fn summaries() -> Result<Vec<Value>, String> {
-    let v = parse(modules().keystore_module.pending_with_timeout(KS_TIMEOUT))?;
+    let v = parse(modules().signer_manager_module.pending_with_timeout(CALL_TIMEOUT))?;
     Ok(v.get("pending").and_then(Value::as_array).cloned().unwrap_or_default())
 }
 
@@ -97,7 +99,7 @@ fn strings(v: &Value, key: &str) -> Vec<String> {
 }
 
 fn claim(handle: &str) -> Result<Rendered, String> {
-    let v = parse(modules().keystore_module.acknowledge_with_timeout(handle, KS_TIMEOUT))?;
+    let v = parse(modules().signer_manager_module.acknowledge_with_timeout(handle, CALL_TIMEOUT))?;
     let field = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
     let render_lines = strings(&v, "render_lines");
     Ok(Rendered {
@@ -132,13 +134,12 @@ impl Inner {
             let mut st = self.lock_state();
             st.last_error = None;
             let count_moved = st.queue.len() != queue.len();
-            let gone = match &st.rendered {
-                Some(r) if !queue.iter().any(|s| handle_of(s) == Some(&r.handle)) => Some(r.handle.clone()),
-                _ => None,
-            };
-            if gone.is_some() {
-                st.rendered = None;
+            if let Some(r) = st.rendered.take_if(|r| !queue.iter().any(|s| handle_of(s) == Some(&r.handle))) {
+                st.vanished.push((r.handle, std::time::Instant::now()));
             }
+            let (gone, waiting): (Vec<_>, Vec<_>) =
+                std::mem::take(&mut st.vanished).into_iter().partition(|(_, at)| at.elapsed() >= POLL);
+            st.vanished = waiting;
             // Prefer what another approver already has on screen, so two of us converge.
             let pick = match st.rendered {
                 None => queue
@@ -155,7 +156,7 @@ impl Inner {
         if count_moved {
             emit_queue_changed(self.lock_state().queue.len() as i64);
         }
-        if let Some(h) = gone {
+        for (h, _) in gone {
             emit_settled(&h, "gone");
         }
         if let Some(h) = pick {
@@ -173,16 +174,17 @@ impl Inner {
         emit_prompt(&handle, &text);
     }
 
-    /// Drop `handle` locally; true if it was known here (rendered or queued).
+    /// Drop `handle` locally; true if it was known here (rendered, queued or vanished).
     fn forget(&self, handle: &str) -> bool {
         let mut st = self.lock_state();
         let shown = st.rendered.as_ref().is_some_and(|r| r.handle == handle);
-        let before = st.queue.len();
+        let before = (st.queue.len(), st.vanished.len());
         st.queue.retain(|s| handle_of(s) != Some(handle));
+        st.vanished.retain(|(h, _)| h != handle);
         if shown {
             st.rendered = None;
         }
-        shown || st.queue.len() != before
+        shown || (st.queue.len(), st.vanished.len()) != before
     }
 
     fn on_settled(&self, handle: &str, state: &str) {
@@ -196,14 +198,14 @@ impl Inner {
         let mut settled = None;
         loop {
             if offered.is_none() {
-                offered = modules().keystore_module.on_approval_offered().ok();
+                offered = modules().signer_manager_module.on_approval_offered().ok();
             }
             if settled.is_none() {
-                settled = modules().keystore_module.on_approval_settled().ok();
+                settled = modules().signer_manager_module.on_approval_settled().ok();
             }
             if let Some(s) = &settled {
                 while let Ok(ev) = s.try_recv() {
-                    for e in keystore_module::KeystoreModuleClient::decode_approval_settled(&ev) {
+                    for e in signer_manager_module::SignerManagerModuleClient::decode_approval_settled(&ev) {
                         self.on_settled(&e.handle, &e.state);
                     }
                 }
@@ -309,7 +311,7 @@ impl EvmSignerCliModule for EvmSignerCliModuleImpl {
             return refuse(&mut password, "bundle_id does not match the request on screen");
         }
 
-        let out = modules().keystore_module.approve_with_timeout(
+        let out = modules().signer_manager_module.approve_with_timeout(
             &handle,
             &fresh.bundle_id,
             strip_file_newline(&password),
@@ -317,20 +319,24 @@ impl EvmSignerCliModule for EvmSignerCliModuleImpl {
         );
         scrub(&mut password);
         match parse(out) {
+            // A device signer works on: the record settles when the device answers.
+            Ok(v) if v.get("state").and_then(Value::as_str) == Some("signing") => {
+                json!({ "ok": true, "handle": handle, "state": "signing" }).to_string()
+            }
             Ok(v) => {
                 self.inner.forget(&handle);
                 emit_settled(&handle, "approved");
                 json!({ "ok": true, "handle": handle, "signed_count": v.get("signed_count").cloned().unwrap_or(Value::Null) })
                     .to_string()
             }
-            Err(_) => err("approval failed: wrong password, or the request is no longer the one being rendered"),
+            Err(e) => err(format!("approval failed: {e}")),
         }
     }
 
     fn reject(&self, handle: String) -> bool {
         let handle = handle.trim().to_string();
         let _lane = self.inner.lane.lock().unwrap_or_else(|p| p.into_inner());
-        let ok = modules().keystore_module.reject(&handle).unwrap_or(false);
+        let ok = modules().signer_manager_module.reject(&handle).unwrap_or(false);
         if ok {
             self.inner.forget(&handle);
             emit_settled(&handle, "rejected");

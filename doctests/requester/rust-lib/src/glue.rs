@@ -11,13 +11,13 @@ const TEST_KEY: &str = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7b
 const VAULT_PASSWORD: &str = "doctest-pw";
 
 pub trait EvmSignerCliProbeModule: Send + 'static {
-    /// Import the test key (Tier D — this fixture must be the custodian). `{ ok, address }`.
+    /// Import the test key (Tier D — this fixture must be the keystore's custodian). `{ ok, address }`.
     fn setup(&mut self) -> String;
-    /// Ask for a signature over `message`. `{ ok, handle }`; the receipt stays here.
+    /// Ask the manager for a signature over `message`. `{ ok, handle }`; the receipt stays here.
     fn request(&mut self, message: String) -> String;
     /// `{ ok, state, reason?, signed? }` — collects and acknowledges the result once approved.
     fn outcome(&mut self, handle: String) -> String;
-    /// Give up on a request, the one ending the keystore never announces.
+    /// Give up on a request.
     fn cancel(&mut self, handle: String) -> bool;
     fn on_context_ready(&mut self, _ctx: &RustModuleContext) {}
 }
@@ -69,7 +69,7 @@ impl EvmSignerCliProbeModule for EvmSignerCliProbeModuleImpl {
                 }}
             ]
         });
-        match parse(modules().keystore_module.request_approval(&intent.to_string())) {
+        match parse(modules().signer_manager_module.request_approval(&intent.to_string())) {
             Ok(v) => {
                 let (handle, receipt) = (text(&v, "handle"), text(&v, "receipt"));
                 self.receipts.lock().unwrap().insert(handle.clone(), receipt);
@@ -83,7 +83,7 @@ impl EvmSignerCliProbeModule for EvmSignerCliProbeModuleImpl {
         let Some(receipt) = self.receipts.lock().unwrap().get(&handle).cloned() else {
             return err("no receipt for that handle");
         };
-        let status = match parse(modules().keystore_module.approval_status(&handle, &receipt)) {
+        let status = match parse(modules().signer_manager_module.approval_status(&handle, &receipt)) {
             Ok(v) => v,
             Err(e) => return err(format!("approval_status: {e}")),
         };
@@ -91,10 +91,10 @@ impl EvmSignerCliProbeModule for EvmSignerCliProbeModuleImpl {
         if reason != "approved" {
             return json!({ "ok": true, "state": state, "reason": reason }).to_string();
         }
-        match parse(modules().keystore_module.fetch_result(&handle, &receipt)) {
+        match parse(modules().signer_manager_module.fetch_result(&handle, &receipt)) {
             Ok(v) => {
                 let signed = v.get("signed").cloned().unwrap_or(Value::Null);
-                let _ = modules().keystore_module.ack_result(&handle, &receipt);
+                let _ = modules().signer_manager_module.ack_result(&handle, &receipt);
                 json!({ "ok": true, "state": state, "reason": reason, "signed": signed }).to_string()
             }
             Err(e) => err(format!("fetch_result: {e}")),
@@ -105,7 +105,7 @@ impl EvmSignerCliProbeModule for EvmSignerCliProbeModuleImpl {
         let Some(receipt) = self.receipts.lock().unwrap().get(&handle).cloned() else {
             return false;
         };
-        modules().keystore_module.cancel_approval(&handle, &receipt).unwrap_or(false)
+        modules().signer_manager_module.cancel_approval(&handle, &receipt).unwrap_or(false)
     }
 }
 
