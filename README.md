@@ -60,6 +60,7 @@ SIGNING REQUEST  smh_3f2a…
       wad: 100000000000000000
     In WETH units: 0.1 WETH
 ----------------------------------------------------------------
+signer:   keystore_module — asks for the account's password
 approve:  logosctl call evm_signer_cli approve smh_3f2a… 8c1e… @/path/to/pwfile
 reject:   logosctl call evm_signer_cli reject smh_3f2a…
 ================================================================
@@ -111,8 +112,15 @@ the [logos-eth-wallet-backend README](https://github.com/logos-co/logos-eth-wall
 | `list()` | the manager's queue summaries — never leg detail |
 | `show(handle)` | claim `handle` for display: the manager's lines, verbatim, this signer's `interpretation_lines`, plus the prompt text |
 | `approve(handle, bundle_id, password)` | the human said yes to the request on screen; `{ok, handle, signed_count}` |
+| `confirm(handle, bundle_id)` | yes, with no secret: the account is unlocked for this request, or its device asks the person itself; `{ok, handle, signed_count}`, or `{ok, handle, state: "signing"}` while a device works |
 | `reject(handle)` | the human said no; `bool` |
+| `unattended()` | what was signed without being shown, inside an unlock the person granted that way: `{ok, signed: [{handle, requester, account, ageMs}]}` |
 | `refresh()` | re-read the queue now, then answer as `status` does |
+
+The `signer:` line says who signs and what approving takes. An account the keys app unlocked
+for the requesting app, with confirmation, reads `this account is unlocked: no password`, and
+its approve line is `confirm`. A device that asks the person itself reads `confirm on the device
+when it asks`. `confirm` is refused before anything is signed when neither holds.
 
 `approve` binds three things and refuses before the password is used if any is off: the
 handle must be the one on screen, the bundle id must be the one shown, and the request is

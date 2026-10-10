@@ -8,6 +8,7 @@ type Receipts = std::sync::Mutex<std::collections::HashMap<String, String>>;
 
 /// Foundry's well-known account 0. A published test key: never fund it.
 const TEST_KEY: &str = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+const ADDRESS: &str = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 const VAULT_PASSWORD: &str = "doctest-pw";
 
 pub trait EvmSignerCliProbeModule: Send + 'static {
@@ -19,6 +20,9 @@ pub trait EvmSignerCliProbeModule: Send + 'static {
     fn outcome(&mut self, handle: String) -> String;
     /// Give up on a request.
     fn cancel(&mut self, handle: String) -> bool;
+    /// Unlock the test account for this fixture's own requests, as the manager's custodian (the
+    /// keys app's role): `count` signatures, each confirmed or none of them shown.
+    fn unlock(&mut self, count: i64, confirm: bool) -> String;
     fn on_context_ready(&mut self, _ctx: &RustModuleContext) {}
 }
 
@@ -56,7 +60,7 @@ impl EvmSignerCliProbeModule for EvmSignerCliProbeModuleImpl {
 
     fn request(&mut self, message: String) -> String {
         let intent = json!({
-            "address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+            "address": ADDRESS,
             "purpose": format!("Doc-test: sign \"{message}\""),
             "legs": [
                 { "kind": "message", "text": message },
@@ -106,6 +110,15 @@ impl EvmSignerCliProbeModule for EvmSignerCliProbeModuleImpl {
             return false;
         };
         modules().signer_manager_module.cancel_approval(&handle, &receipt).unwrap_or(false)
+    }
+
+    fn unlock(&mut self, count: i64, confirm: bool) -> String {
+        let terms = json!({ "account": ADDRESS, "password": VAULT_PASSWORD, "count": count,
+                            "apps": ["evm_signer_cli_probe"], "confirm": confirm });
+        match parse(modules().signer_manager_module.unlock(&terms.to_string())) {
+            Ok(v) => v.to_string(),
+            Err(e) => err(format!("unlock refused: {e}")),
+        }
     }
 }
 
