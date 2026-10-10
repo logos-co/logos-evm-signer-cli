@@ -25,8 +25,14 @@ pub trait EvmSignerCliModule: Send + Sync + 'static {
     fn show(&self, handle: String) -> String;
     /// The human said yes to the request on screen. `bundle_id` must be the value shown.
     fn approve(&self, handle: String, bundle_id: String, password: String) -> String;
+    /// Yes, with no secret: the account is unlocked for this request, or its device asks the
+    /// person itself. `{ ok, handle, signed_count }`, or `{ ok, handle, state: "signing" }`.
+    fn confirm(&self, handle: String, bundle_id: String) -> String;
     /// The human said no.
     fn reject(&self, handle: String) -> bool;
+    /// What was signed without being shown, inside an unlock the person granted that way:
+    /// `{ ok, signed: [{ handle, requester, account, ageMs }] }`.
+    fn unattended(&self) -> String;
     /// Re-read the queue now, then answer as `status` does.
     fn refresh(&self) -> String;
     fn on_context_ready(&self, _ctx: &RustModuleContext) {}
@@ -109,6 +115,9 @@ fn claim(handle: &str) -> Result<Rendered, String> {
         claim_lines: strings(&v, "claim_lines"),
         interpretation_lines: interpret(&render_lines),
         render_lines,
+        signer: field("signer"),
+        collects: field("collects"),
+        unlocked: v.get("unlocked").and_then(Value::as_bool).unwrap_or(false),
     })
 }
 
@@ -225,6 +234,62 @@ impl Inner {
 }
 
 impl EvmSignerCliModuleImpl {
+    /// `approve` with the secret typed, `confirm` with none. Each check refuses before a secret is used.
+    fn decide(&self, handle: String, bundle_id: String, secret: Option<String>) -> String {
+        let given = secret.is_some();
+        let mut password = secret.unwrap_or_default();
+        let handle = handle.trim().to_string();
+        let wanted = normalise_bundle_id(&bundle_id);
+        let _lane = self.inner.lane.lock().unwrap_or_else(|p| p.into_inner());
+
+        let refuse = |password: &mut String, msg: &str| {
+            scrub(password);
+            err(msg)
+        };
+        let shown = self.inner.lock_state().rendered.clone();
+        match shown {
+            Some(r) if r.handle == handle => {
+                if normalise_bundle_id(&r.bundle_id) != wanted {
+                    return refuse(&mut password, "bundle_id does not match the request on screen");
+                }
+            }
+            _ => return refuse(&mut password, "that is not the request on screen; run `show <handle>` first"),
+        }
+        // Re-claim: another approver may have demoted it, and a settled record refuses here,
+        // before the password is used. The commitment is deterministic, so the id must hold.
+        let fresh = match claim(&handle) {
+            Ok(r) => r,
+            Err(e) => return refuse(&mut password, &format!("could not re-open the request: {e}")),
+        };
+        if normalise_bundle_id(&fresh.bundle_id) != wanted {
+            return refuse(&mut password, "bundle_id does not match the request on screen");
+        }
+        if !given && !fresh.needs_no_secret() {
+            return refuse(&mut password, "this account is not unlocked for this request: approve it with its password");
+        }
+
+        let out = modules().signer_manager_module.approve_with_timeout(
+            &handle,
+            &fresh.bundle_id,
+            strip_file_newline(&password),
+            APPROVE_TIMEOUT,
+        );
+        scrub(&mut password);
+        match parse(out) {
+            // A device signer works on: the record settles when the device answers.
+            Ok(v) if v.get("state").and_then(Value::as_str) == Some("signing") => {
+                json!({ "ok": true, "handle": handle, "state": "signing" }).to_string()
+            }
+            Ok(v) => {
+                self.inner.forget(&handle);
+                emit_settled(&handle, "approved");
+                json!({ "ok": true, "handle": handle, "signed_count": v.get("signed_count").cloned().unwrap_or(Value::Null) })
+                    .to_string()
+            }
+            Err(e) => err(format!("approval failed: {e}")),
+        }
+    }
+
     fn status_json(&self) -> String {
         let id = identity();
         let held = holds(&id, ME, "approvers");
@@ -237,6 +302,7 @@ impl EvmSignerCliModuleImpl {
             "custodians": id.get("custodians").cloned().unwrap_or(json!([])),
             "rendered": st.rendered.as_ref().map(|r| json!({
                 "handle": r.handle, "bundle_id": r.bundle_id, "requester": r.requester,
+                "signer": r.signer, "collects": r.collects, "unlocked": r.unlocked,
             })),
             "pending_count": st.queue.len(),
             "last_error": st.last_error.as_deref().filter(|e| !(held && *e == "not authorized")),
@@ -283,53 +349,18 @@ impl EvmSignerCliModule for EvmSignerCliModuleImpl {
         }
     }
 
-    fn approve(&self, handle: String, bundle_id: String, mut password: String) -> String {
-        let handle = handle.trim().to_string();
-        let wanted = normalise_bundle_id(&bundle_id);
-        let _lane = self.inner.lane.lock().unwrap_or_else(|p| p.into_inner());
+    fn approve(&self, handle: String, bundle_id: String, password: String) -> String {
+        self.decide(handle, bundle_id, Some(password))
+    }
 
-        let refuse = |password: &mut String, msg: &str| {
-            scrub(password);
-            err(msg)
-        };
-        let shown = self.inner.lock_state().rendered.clone();
-        match shown {
-            Some(r) if r.handle == handle => {
-                if normalise_bundle_id(&r.bundle_id) != wanted {
-                    return refuse(&mut password, "bundle_id does not match the request on screen");
-                }
-            }
-            _ => return refuse(&mut password, "that is not the request on screen; run `show <handle>` first"),
-        }
-        // Re-claim: another approver may have demoted it, and a settled record refuses here,
-        // before the password is used. The commitment is deterministic, so the id must hold.
-        let fresh = match claim(&handle) {
-            Ok(r) => r,
-            Err(e) => return refuse(&mut password, &format!("could not re-open the request: {e}")),
-        };
-        if normalise_bundle_id(&fresh.bundle_id) != wanted {
-            return refuse(&mut password, "bundle_id does not match the request on screen");
-        }
+    fn confirm(&self, handle: String, bundle_id: String) -> String {
+        self.decide(handle, bundle_id, None)
+    }
 
-        let out = modules().signer_manager_module.approve_with_timeout(
-            &handle,
-            &fresh.bundle_id,
-            strip_file_newline(&password),
-            APPROVE_TIMEOUT,
-        );
-        scrub(&mut password);
-        match parse(out) {
-            // A device signer works on: the record settles when the device answers.
-            Ok(v) if v.get("state").and_then(Value::as_str) == Some("signing") => {
-                json!({ "ok": true, "handle": handle, "state": "signing" }).to_string()
-            }
-            Ok(v) => {
-                self.inner.forget(&handle);
-                emit_settled(&handle, "approved");
-                json!({ "ok": true, "handle": handle, "signed_count": v.get("signed_count").cloned().unwrap_or(Value::Null) })
-                    .to_string()
-            }
-            Err(e) => err(format!("approval failed: {e}")),
+    fn unattended(&self) -> String {
+        match parse(modules().signer_manager_module.unattended_signatures_with_timeout(CALL_TIMEOUT)) {
+            Ok(v) => json!({ "ok": true, "signed": v.get("signed").cloned().unwrap_or(json!([])) }).to_string(),
+            Err(e) => err(e),
         }
     }
 

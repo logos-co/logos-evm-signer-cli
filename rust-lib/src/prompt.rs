@@ -14,6 +14,18 @@ pub struct Rendered {
     pub claim_lines: Vec<String>,
     pub render_lines: Vec<String>,
     pub interpretation_lines: Vec<String>,
+    /// The module that signs, and what it asks for: `password`, `pin` or `nothing` (a device).
+    pub signer: String,
+    pub collects: String,
+    /// An unlock covers this request, so it is approved without a secret.
+    pub unlocked: bool,
+}
+
+impl Rendered {
+    /// Approved with `confirm`, no secret: inside an unlock, or on a device that asks itself.
+    pub fn needs_no_secret(&self) -> bool {
+        self.unlocked || self.collects == "nothing"
+    }
 }
 
 const RULE: &str = "================================================================";
@@ -63,10 +75,20 @@ pub fn render(r: &Rendered) -> String {
     }
 
     out.push(THIN.into());
-    out.push(format!(
-        "approve:  logosctl call evm_signer_cli approve {} {} @/path/to/pwfile",
-        r.handle, r.bundle_id
-    ));
+    if !r.signer.is_empty() {
+        let how = match (r.unlocked, r.collects.as_str()) {
+            (true, _) => "this account is unlocked: no password",
+            (false, "nothing") => "confirm on the device when it asks",
+            (false, "pin") => "asks for the card's PIN",
+            _ => "asks for the account's password",
+        };
+        out.push(format!("signer:   {} — {how}", r.signer));
+    }
+    out.push(match (r.needs_no_secret(), r.collects.as_str()) {
+        (true, _) => format!("approve:  logosctl call evm_signer_cli confirm {} {}", r.handle, r.bundle_id),
+        (false, "pin") => format!("approve:  logosctl call evm_signer_cli approve {} {} @/path/to/pinfile", r.handle, r.bundle_id),
+        _ => format!("approve:  logosctl call evm_signer_cli approve {} {} @/path/to/pwfile", r.handle, r.bundle_id),
+    });
     out.push(format!("reject:   logosctl call evm_signer_cli reject {}", r.handle));
     out.push(RULE.into());
     out.join("\n")
@@ -151,7 +173,29 @@ mod tests {
             claim_lines: vec!["Purpose (claimed by the requester): Send 1 ETH".into()],
             render_lines: vec!["Account: 0xf39F".into(), "Commitment: 8c1e".into()],
             interpretation_lines: vec!["Interpreted: WETH — VERIFIED".into()],
+            signer: "keystore_module".into(),
+            collects: "password".into(),
+            unlocked: false,
         }
+    }
+
+    #[test]
+    fn the_last_lines_say_who_signs_and_what_approving_takes() {
+        let text = render(&sample());
+        assert!(text.contains("signer:   keystore_module — asks for the account's password"));
+        assert!(text.contains("approve:  logosctl call evm_signer_cli approve smh_abc 8c1e @/path/to/pwfile"));
+        let unlocked = Rendered { unlocked: true, ..sample() };
+        let text = render(&unlocked);
+        assert!(text.contains("this account is unlocked: no password"), "{text}");
+        assert!(text.contains("approve:  logosctl call evm_signer_cli confirm smh_abc 8c1e\n"), "{text}");
+        let device = Rendered { signer: "ledger_module".into(), collects: "nothing".into(), ..sample() };
+        assert!(render(&device).contains("ledger_module — confirm on the device when it asks"));
+        assert!(render(&device).contains("evm_signer_cli confirm smh_abc"));
+        let card = Rendered { signer: "keycard_module".into(), collects: "pin".into(), ..sample() };
+        assert!(render(&card).contains("@/path/to/pinfile"));
+        // A manager that does not say who signs gets the password form, and no signer line.
+        let older = Rendered { signer: String::new(), collects: String::new(), ..sample() };
+        assert!(!render(&older).contains("signer:") && render(&older).contains("@/path/to/pwfile"));
     }
 
     #[test]

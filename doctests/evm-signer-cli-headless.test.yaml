@@ -66,7 +66,7 @@ sections:
         code_block: "nix build 'github:logos-co/logos-evm-keystore-module#install' --out-link ./result-keystore"
         check_file: "result-keystore/modules/keystore_module/manifest.json"
       - title: "Build signer_manager_module"
-        run: 'nix build "github:logos-co/logos-signer-manager-module/67859da29c14e1ffe1da306e0c31fdafb33a0a02#install" --out-link ./result-manager'
+        run: 'nix build "github:logos-co/logos-signer-manager-module/308b151c7460cff2300cbc8cc338f04cd7442a6a#install" --out-link ./result-manager'
         code_block: "nix build 'github:logos-co/logos-signer-manager-module#install' --out-link ./result-manager"
         check_file: "result-manager/modules/signer_manager_module/manifest.json"
       - title: "Build evm_signer_cli"
@@ -177,11 +177,11 @@ sections:
         expect_contains:
           - '"evm_signer_cli_probe"'
           - '"signer_manager_module"'
-      - title: "The manager: who approves, and which signers it asks"
+      - title: "The manager: who approves, who unlocks, and which signers it asks"
         run: |
-          ./logos/bin/logosctl --config-dir ./session call signer_manager_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_keystore_ui"],"signers":["keystore_module"]}' --human
+          ./logos/bin/logosctl --config-dir ./session call signer_manager_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_keystore_ui","evm_signer_cli_probe"],"signers":["keystore_module"]}' --human
         code_block: |
-          logosctl call signer_manager_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_keystore_ui"],"signers":["keystore_module"]}'
+          logosctl call signer_manager_module configure '{"approvers":["evm_signer_ui","evm_signer_cli"],"custodians":["evm_keystore_ui","evm_signer_cli_probe"],"signers":["keystore_module"]}'
         expect_contains:
           - '"evm_signer_cli"'
           - '"keystore_module"'
@@ -328,6 +328,128 @@ sections:
         expect_contains:
           - '"event":"settled"'
           - '"arg1":"approved"'
+
+  - title: "An unlocked account: confirm, no password"
+    step: true
+    text: |
+      The keys app can unlock an account on the person's terms: how long, how many signatures,
+      for which apps, and whether each one is still confirmed. Here the fixture plays the keys
+      app — the manager's custodian for this run — and unlocks the test account for one
+      signature of its own requests, each confirmed. The prompt then says so, and the operator
+      confirms with `confirm` and no password. Once the count is spent the keystore drops the
+      unlock, and the next request needs the password again.
+    steps:
+      - title: "Unlock one signature, confirmed"
+        run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe unlock 1 true --human"
+        code_block: |
+          logosctl call signer_manager_module unlock '{"account":"0xf39F…2266","password":"…","count":1,"apps":["evm_signer_cli_probe"],"confirm":true}'
+        expect_contains:
+          - '"countLeft":1'
+      - title: "The prompt says the account is unlocked"
+        run: |
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe request str:unlocked --human \
+            | python3 -c 'import sys,json; open("h4.txt","w").write(json.load(sys.stdin)["handle"])'
+          sleep 3
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli status --human \
+            | python3 -c 'import sys,json; r=json.load(sys.stdin)["rendered"]; open("b4.txt","w").write(r["bundle_id"]); print(json.dumps(r))'
+          grep -o "this account is unlocked: no password" watch.jsonl | head -1
+        code_block: "logosctl call evm_signer_cli status"
+        expect_contains:
+          - '"unlocked": true'
+          - "this account is unlocked: no password"
+      - title: "Confirm"
+        run: |
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli confirm "$(cat h4.txt)" "$(cat b4.txt)" --human
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe outcome "$(cat h4.txt)" --human
+        code_block: "logosctl call evm_signer_cli confirm <handle> <bundle_id>"
+        expect_contains:
+          - '"signed_count":2'
+          - '"reason":"approved"'
+      - title: "The count is spent"
+        run: |
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe request str:spent --human \
+            | python3 -c 'import sys,json; open("h5.txt","w").write(json.load(sys.stdin)["handle"])'
+          sleep 3
+          b=$(./logos/bin/logosctl --config-dir ./session call evm_signer_cli status --human | python3 -c 'import sys,json; print(json.load(sys.stdin)["rendered"]["bundle_id"])')
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli confirm "$(cat h5.txt)" "$b" --human || true
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli reject "$(cat h5.txt)" --human
+        code_block: "logosctl call evm_signer_cli confirm <handle> <bundle_id>      # refused: approve with the password"
+        expect_contains:
+          - "not unlocked for this request"
+      - title: "Signed without asking, and listed"
+        text: |
+          An unlock without confirmation signs each covered request as it arrives: nothing is
+          shown, and the request settles at once. The person chose that for named apps only,
+          and `unattended` lists what was signed that way.
+        run: |
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe unlock 1 false --human
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe request str:unseen --human \
+            | python3 -c 'import sys,json; open("h6.txt","w").write(json.load(sys.stdin)["handle"])'
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe outcome "$(cat h6.txt)" --human
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli unattended --human
+        code_block: |
+          logosctl call evm_signer_cli_probe request str:unseen      # settles at once
+          logosctl call evm_signer_cli unattended
+        expect_contains:
+          - '"reason":"approved"'
+          - '"requester":"evm_signer_cli_probe"'
+
+  - title: "A Bitcoin send: with the password, then unlocked"
+    step: true
+    text: |
+      The manager reads a PSBT itself: every input must be this wallet's, change is checked by
+      deriving its key, and the fee is its own sum of the inputs. It then has the keystore sign
+      each input's sighash. The fixture imports the test phrase as a regtest wallet and asks for
+      a 60,000-sat send with 39,000 back as change; the PSBT is built offline and nothing is
+      broadcast.
+    steps:
+      - title: "A regtest wallet"
+        run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe setup_bitcoin --human"
+        code_block: "logosctl call evm_signer_cli_probe setup_bitcoin"
+        expect_contains:
+          - '"group":"g_'
+      - title: "The send, as the manager reads it"
+        run: |
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe request_psbt --human \
+            | python3 -c 'import sys,json; open("h7.txt","w").write(json.load(sys.stdin)["handle"])'
+          sleep 3
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli show "$(cat h7.txt)" --human > shown7.json
+          python3 -c 'import json; r=json.load(open("shown7.json")); open("b7.txt","w").write(r["bundle_id"]); print(r["text"])'
+        code_block: "logosctl call evm_signer_cli show <handle>"
+        expect_contains:
+          - "Bitcoin regtest · wallet"
+          - "native segwit, account 0"
+          - "Send 0.00060000 BTC to bcrt1q"
+          - "Change 0.00039000 BTC back to this wallet (m/84'/1'/0'/1/0, checked)"
+          - "Fee 1,000 sats,"
+          - "signer:   keystore_module — asks for the account's password"
+      - title: "Approve with the wallet's password"
+        run: |
+          echo btc-pw > btcpw.txt
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli approve "$(cat h7.txt)" "$(cat b7.txt)" @btcpw.txt --human
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe outcome "$(cat h7.txt)" --human
+        code_block: |
+          logosctl call evm_signer_cli approve <handle> <bundle_id> @btcpw.txt
+          logosctl call evm_signer_cli_probe outcome <handle>      # the PSBT, its input signed
+        expect_contains:
+          - '"signed_count":1'
+          - '"psbt_signatures":1'
+      - title: "Unlocked: confirm, no password"
+        run: |
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe unlock_bitcoin 1 true --human
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe request_psbt --human \
+            | python3 -c 'import sys,json; open("h8.txt","w").write(json.load(sys.stdin)["handle"])'
+          sleep 3
+          b=$(./logos/bin/logosctl --config-dir ./session call evm_signer_cli status --human | python3 -c 'import sys,json; r=json.load(sys.stdin)["rendered"]; print(r["bundle_id"] if r["unlocked"] else "not-unlocked")')
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli confirm "$(cat h8.txt)" "$b" --human
+          ./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe outcome "$(cat h8.txt)" --human
+        code_block: |
+          logosctl call evm_signer_cli_probe unlock_bitcoin 1 true
+          logosctl call evm_signer_cli confirm <handle> <bundle_id>
+        expect_contains:
+          - '"countLeft":1'
+          - '"signed_count":1'
+          - '"psbt_signatures":1'
 
   - title: "Reject, cancel, and choose"
     step: true
