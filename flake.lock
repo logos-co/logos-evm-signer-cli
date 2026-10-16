@@ -17828,6 +17828,27 @@
         "type": "github"
       }
     },
+    "package_manager": {
+      "inputs": {
+        "logos-module-builder": [
+          "logos-module-builder"
+        ],
+        "logos-package-manager": []
+      },
+      "locked": {
+        "lastModified": 1791833533,
+        "narHash": "sha256-fUusBXlUuQ6amU8+Jch2mfoodFdJJB7k7obHvvor7+g=",
+        "owner": "logos-co",
+        "repo": "logos-package-manager-module",
+        "rev": "6955a098b1c8a2e20e39b8e006eadcf7d87b6366",
+        "type": "github"
+      },
+      "original": {
+        "owner": "logos-co",
+        "repo": "logos-package-manager-module",
+        "type": "github"
+      }
+    },
     "process-stats": {
       "inputs": {
         "logos-nix": "logos-nix_106",
@@ -17887,6 +17908,7 @@
     "root": {
       "inputs": {
         "logos-module-builder": "logos-module-builder",
+        "package_manager": "package_manager",
         "signer_manager_module": "signer_manager_module",
         "token_list_module": "token_list_module"
       }

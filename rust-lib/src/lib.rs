@@ -2,6 +2,7 @@
 
 pub mod decoder;
 pub mod prompt;
+pub mod sheet;
 pub mod tokenlist;
 
 #[cfg(feature = "logos_module")]

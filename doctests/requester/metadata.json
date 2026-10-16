@@ -1,5 +1,6 @@
 {
   "name": "evm_signer_cli_probe",
+  "display_name": "Signer CLI Probe",
   "version": "1.0.0",
   "description": "Doc-test fixture: a requester of the signer manager that is also the keystore's custodian. Imports a known key, asks the manager for a signature on demand, and reports what came of it.",
   "author": "Logos Core Team",
