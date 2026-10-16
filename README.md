@@ -97,6 +97,37 @@ list makes.
 `token_list_module` is an **optional** dependency. Absent is a normal state and costs only
 those lines: this signer must come up on a device that has no token list at all.
 
+Section 1 names the requester by the id the manager gives, the caller's module name as the
+platform identified it. `package_manager`, also optional, may put the user's installed
+package's `display_name` before it: `1.  Requested by: Bitcoin Wallet Core
+(bitcoin_wallet_core_module)`. A `logosctl` daemon loads `package_manager` at boot, so the name
+shows there for a package installed in the session. The name is never anything the request
+says, and the id always follows it. It is dropped unless it is short plain ASCII (letters,
+digits, single spaces and `- . '`, at most 40 characters), and when another installed package
+wears it too, compared by letters and digits in any case. With no package manager (a
+`logoscore` run without one), or no usable name, the id stands alone. A package manager
+answers in milliseconds; an absent one costs each prompt the lookup's half-second bound.
+
+The decoder reads EVM calls only. For a Bitcoin request, section 3 adds up section 2's own
+lines instead: what comes back to this wallet (which the manager checked), what is paid out,
+the fee and the inputs.
+
+```text
+3.  What this signer makes of section 2
+    Decoded on this device from the lines above. Not part of what
+    is signed, and every line says how sure it is.
+  Interpreted: Bitcoin — section 2's own figures, added up on this device
+    Everything comes back to this wallet; you pay only the 141-sat fee.
+```
+
+or, with a payment out, `Sends 0.00003000 BTC to an address not shown to be this wallet's;
+0.00363024 BTC comes back to this wallet; fee 141 sats.` "Not shown to be this wallet's" is
+all the manager's lines say of a payment: it proves only the outputs the PSBT claims for this
+wallet. Every line must be one of the manager's own forms, and the outputs plus the fee must
+equal the inputs to the satoshi. Otherwise section 3 is one line: `Interpreted: nothing to add
+— section 2 is the signer manager's whole reading of this Bitcoin transaction.` Both rules
+are the Signer app's, so the two read a request alike.
+
 `show` returns the same lines as `interpretation_lines`, so a machine consumer need not
 re-parse the block.
 
@@ -110,7 +141,7 @@ the [logos-eth-wallet-backend README](https://github.com/logos-co/logos-eth-wall
 |---|---|
 | `status()` | `{ok, held, identity, approvers, custodians, rendered, pending_count, last_error, hint}` — `held` says whether this module is a configured approver; `hint` is the exact `configure` command when it is not |
 | `list()` | the manager's queue summaries — never leg detail |
-| `show(handle)` | claim `handle` for display: the manager's lines, verbatim, this signer's `interpretation_lines`, plus the prompt text |
+| `show(handle)` | claim `handle` for display: the manager's lines, verbatim, this signer's `interpretation_lines`, the requester's installed name as `requester_name` (empty when there is none to trust), plus the prompt text |
 | `approve(handle, bundle_id, password)` | the human said yes to the request on screen; `{ok, handle, signed_count}` |
 | `confirm(handle, bundle_id)` | yes, with no secret: the account is unlocked for this request, or its device asks the person itself; `{ok, handle, signed_count}`, or `{ok, handle, state: "signing"}` while a device works |
 | `reject(handle)` | the human said no; `bool` |

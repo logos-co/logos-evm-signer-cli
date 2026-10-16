@@ -9,7 +9,7 @@
 
 use logos_tx_decoder::{read_request, AbiDb};
 
-use crate::tokenlist;
+use crate::{sheet, tokenlist};
 use std::sync::OnceLock;
 
 /// Parsing ~430KB of embedded ABI JSON per request would be absurd, and this module
@@ -23,6 +23,11 @@ fn db() -> Option<&'static AbiDb> {
 /// signer does not know — and is never an error: the prompt drops the section and the
 /// manager's own words stand alone, exactly as they did before this existed.
 pub fn interpret(render_lines: &[String]) -> Vec<String> {
+    // A Bitcoin request is read here from the same lines; the decoder reads EVM calls only.
+    let btc = sheet::bitcoin_reading(render_lines);
+    if !btc.is_empty() {
+        return btc;
+    }
     let Some(db) = db() else { return Vec::new() };
     // The same call `evm_signer_ui` makes over the C ABI: one request, one reading, so
     // the two surfaces cannot describe the same bytes differently.
@@ -113,6 +118,29 @@ mod tests {
         let out = interpret(&l).join("\n");
         assert!(out.contains("UNVERIFIED"), "{out}");
         assert!(!out.contains("WETH"), "{out}");
+    }
+
+    #[test]
+    fn a_bitcoin_send_reads_as_its_own_figures_added_up() {
+        // The doc-test's regtest send, in the manager's line forms.
+        let out = interpret(&lines(&[
+            "Wallet: \"Doctest\"",
+            "Commitment: 9f86d081",
+            "1 item(s) to sign:",
+            "  [1] Bitcoin regtest · wallet \"Doctest\", native segwit, account 0",
+            "      Send 0.00060000 BTC to bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080",
+            "      Change 0.00039000 BTC back to this wallet (m/84'/1'/0'/1/0, checked)",
+            "      Fee 1,000 sats, about 7.1 sat/vB, computed from the inputs",
+            "      Spends 1 coin worth 0.00100000 BTC · replaceable (RBF)",
+        ]));
+        assert_eq!(
+            out,
+            lines(&[
+                "Interpreted: Bitcoin — section 2's own figures, added up on this device",
+                "  Sends 0.00060000 BTC to an address not shown to be this wallet's; 0.00039000 BTC comes back to \
+                 this wallet; fee 1,000 sats.",
+            ])
+        );
     }
 
     #[test]

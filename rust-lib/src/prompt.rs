@@ -11,6 +11,9 @@ pub struct Rendered {
     pub handle: String,
     pub bundle_id: String,
     pub requester: String,
+    /// What the user's installed package calls `requester`, from package_manager; never the
+    /// request's own word. Empty when there is none to trust.
+    pub requester_name: String,
     pub claim_lines: Vec<String>,
     pub render_lines: Vec<String>,
     pub interpretation_lines: Vec<String>,
@@ -42,7 +45,12 @@ const THIN: &str = "------------------------------------------------------------
 pub fn render(r: &Rendered) -> String {
     let mut out = vec![String::new(), RULE.into(), format!("SIGNING REQUEST  {}", r.handle), THIN.into()];
 
-    section(&mut out, 1, &format!("Requested by: {}", r.requester), &[
+    // The name is the installed package's, never the requester's; the id always follows.
+    let by = match r.requester_name.as_str() {
+        "" => r.requester.clone(),
+        name => format!("{name} ({})", r.requester),
+    };
+    section(&mut out, 1, &format!("Requested by: {by}"), &[
         "What that app says this is for. Its own words — this signer",
         "cannot check any of it.",
     ]);
@@ -170,6 +178,7 @@ mod tests {
             handle: "smh_abc".into(),
             bundle_id: "8c1e".into(),
             requester: "eth_wallet_backend".into(),
+            requester_name: String::new(),
             claim_lines: vec!["Purpose (claimed by the requester): Send 1 ETH".into()],
             render_lines: vec!["Account: 0xf39F".into(), "Commitment: 8c1e".into()],
             interpretation_lines: vec!["Interpreted: WETH — VERIFIED".into()],
@@ -231,6 +240,18 @@ mod tests {
         let text = render(&r);
         assert!(text.contains("1.  Requested by: eth_wallet_backend"));
         assert!(text.contains("  (it gave no reason)"));
+    }
+
+    #[test]
+    fn a_trusted_name_comes_first_and_the_id_always_follows() {
+        let named = Rendered {
+            requester: "bitcoin_wallet_core_module".into(),
+            requester_name: "Bitcoin Wallet Core".into(),
+            ..sample()
+        };
+        assert!(render(&named).contains("\n1.  Requested by: Bitcoin Wallet Core (bitcoin_wallet_core_module)\n"));
+        // With no name to trust, the id stands alone, as before.
+        assert!(render(&sample()).contains("\n1.  Requested by: eth_wallet_backend\n"));
     }
 
     #[test]

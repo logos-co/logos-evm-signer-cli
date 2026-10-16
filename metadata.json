@@ -12,7 +12,8 @@
     { "name": "signer_manager_module", "version": "~0.1.0" }
   ],
   "optional_dependencies": [
-    { "name": "token_list_module", "version": "~0.1.0" }
+    { "name": "token_list_module", "version": "~0.1.0" },
+    { "name": "package_manager" }
   ],
   "include": [],
   "capabilities": [],

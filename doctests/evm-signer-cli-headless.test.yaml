@@ -227,11 +227,17 @@ sections:
           manager's words, verbatim. Section 3 is the only text `evm_signer_cli` writes
           itself: the calldata of section 2, decoded offline against a vendored ABI database
           and labelled with how sure it is. The last two lines are the commands to type.
+
+          Section 1's heading is the requester's installed name, then the exact id the manager
+          gave. The name is the fixture's `display_name`, read from `package_manager`, which
+          `logosctl` loads at boot, and never from the request. Without a package manager, or
+          with a name that is not short plain ASCII or that another package wears too, the id
+          stands alone.
         run: "cat watch.jsonl"
         code_block: "# the watcher's terminal"
         expect_contains:
           - '"event":"prompt"'
-          - "1.  Requested by: evm_signer_cli_probe"
+          - "1.  Requested by: Signer CLI Probe (evm_signer_cli_probe)"
           - "claimed by the requester"
           - "2.  What you are signing"
           - "Commitment:"
@@ -402,6 +408,11 @@ sections:
       each input's sighash. The fixture imports the test phrase as a regtest wallet and asks for
       a 60,000-sat send with 39,000 back as change; the PSBT is built offline and nothing is
       broadcast.
+
+      Section 3 adds up section 2's own lines: what comes back to this wallet, what is paid
+      out, the fee and the inputs. It does so only when every line is one of the manager's own
+      forms and the outputs plus the fee equal the inputs to the satoshi; otherwise it says
+      that section 2 is the manager's whole reading of the transaction.
     steps:
       - title: "A regtest wallet"
         run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli_probe setup_bitcoin --human"
@@ -422,6 +433,8 @@ sections:
           - "Send 0.00060000 BTC to bcrt1q"
           - "Change 0.00039000 BTC back to this wallet (m/84'/1'/0'/1/0, checked)"
           - "Fee 1,000 sats,"
+          - "Interpreted: Bitcoin — section 2's own figures, added up on this device"
+          - "Sends 0.00060000 BTC to an address not shown to be this wallet's; 0.00039000 BTC comes back to this wallet; fee 1,000 sats."
           - "signer:   keystore_module — asks for the account's password"
       - title: "Approve with the wallet's password"
         run: |
