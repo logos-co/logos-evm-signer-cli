@@ -17,6 +17,8 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 const APPROVE_TIMEOUT: Duration = Duration::from_secs(60);
 /// package_manager answers in milliseconds; an absent one costs the name and this whole bound.
 const NAME_TIMEOUT: Duration = Duration::from_millis(500);
+/// How long an unlock waits on its holder: a PIN session, a confirmation on the Shell.
+const DEVICE_WAIT: Duration = Duration::from_secs(120);
 
 pub trait EvmSignerCliModule: Send + Sync + 'static {
     /// `{ ok, held, identity, approvers, custodians, rendered, pending_count, last_error, hint }`.
@@ -38,6 +40,45 @@ pub trait EvmSignerCliModule: Send + Sync + 'static {
     fn unattended(&self) -> String;
     /// Re-read the queue now, then answer as `status` does.
     fn refresh(&self) -> String;
+    /// Pick the signer of a request whose account several hold: `{ ok }`.
+    fn choose_signer(&self, handle: String, bundle_id: String, signer: String) -> String;
+
+    // ── wallets: unlocked once per session, by the rule each has ─────────────────────
+    /// The manager's wallets as the approver sees them: names, holders, ways in, passwords' names.
+    fn wallets(&self) -> String;
+    /// `{ seed, way, holder?, secret?, passwords? }`, the secrets from files (`@pin`); waits while
+    /// the holder works and answers its last step: `{ ok, state: done|needs_password|failed, handle? }`.
+    /// `needs_password`: call again with `{ handle, passwords }`.
+    fn unlock_wallet(&self, params_json: String) -> String;
+    fn unlock_progress(&self, handle: String) -> String;
+    fn cancel_unlock(&self, handle: String) -> bool;
+    /// `{ seeds? }`; every wallet for `{}`.
+    fn lock_wallets(&self, params_json: String) -> String;
+    /// A wallet's ways in: `{ seed, ways: [[factor]], holder?, secret?, passwords? }`.
+    fn set_rule(&self, params_json: String) -> String;
+    /// `{ seed, newIndex?, holder?, secret?, passwords? }`.
+    fn change_keys(&self, params_json: String) -> String;
+    /// `{ seed, name?, privateName? }`.
+    fn set_names(&self, params_json: String) -> String;
+    /// `{ name, password }` → `{ ok, id }`.
+    fn create_password(&self, params_json: String) -> String;
+    /// `{ id, name }`.
+    fn rename_password(&self, params_json: String) -> String;
+    /// `{ id, old, new }`.
+    fn change_password(&self, params_json: String) -> String;
+    /// `{ id }`.
+    fn remove_password(&self, params_json: String) -> String;
+
+    // ── opens: an app asks to open a wallet, the approver consents ───────────────────
+    /// Opens waiting: `{ ok, requests: [{ handle, requester, kind, state, ageMs, seed }] }`.
+    fn opens(&self) -> String;
+    /// Claim one for display: `{ ok, handle, requester, bundle_id, lines, asked, seed }`.
+    fn show_open(&self, handle: String) -> String;
+    /// Consent to the open on screen; its wallet must be unlocked (`code: locked` until then).
+    /// `group` names the wallet for an open that let the person pick, else empty.
+    fn approve_open(&self, handle: String, bundle_id: String, group: String) -> String;
+    fn reject_open(&self, handle: String) -> bool;
+
     fn on_context_ready(&self, _ctx: &RustModuleContext) {}
 }
 
@@ -47,6 +88,8 @@ pub trait EvmSignerCliModuleEvents {
     /// `approved` | `rejected` from the manager; `gone` when the poll finds it vanished.
     fn settled(&self, handle: String, state: String);
     fn queue_changed(&self, count: i64);
+    /// An unlock's holder step moved: `device`, `needs_password`, `done` or `failed`.
+    fn unlocking(&self, handle: String, state: String);
 }
 
 include!(concat!(env!("CARGO_MANIFEST_DIR"), "/generated/provider_gen.rs"));
@@ -257,6 +300,50 @@ impl Inner {
     }
 }
 
+/// The manager's answer as it came, its `code` included; an unreachable manager as an error.
+fn relay(reply: Result<String, impl std::fmt::Debug>) -> String {
+    match reply {
+        Ok(raw) if serde_json::from_str::<Value>(&raw).is_ok() => raw,
+        Ok(raw) => err(format!("signer manager: not JSON: {raw}")),
+        Err(e) => err(format!("signer manager unreachable: {e:?}")),
+    }
+}
+
+/// A relayed call whose parameters may carry a secret: wiped once sent.
+fn relay_secret(mut params: String, call: impl FnOnce(&str) -> Result<String, logos_rust_sdk::LogosError>) -> String {
+    let out = relay(call(strip_file_newline(&params)));
+    scrub(&mut params);
+    out
+}
+
+/// While the holder works: its step, announced as it moves, until it settles or `DEVICE_WAIT`.
+fn wait_device(reply: String) -> String {
+    let v: Value = serde_json::from_str(&reply).unwrap_or(Value::Null);
+    let Some(handle) = v.get("handle").and_then(Value::as_str).map(str::to_string) else { return reply };
+    if v.get("state").and_then(Value::as_str) != Some("device") {
+        return reply;
+    }
+    emit_unlocking(&handle, "device");
+    let start = std::time::Instant::now();
+    loop {
+        std::thread::sleep(Duration::from_millis(500));
+        let p = relay(modules().signer_manager_module.unlock_progress_with_timeout(&handle, CALL_TIMEOUT));
+        let state = serde_json::from_str::<Value>(&p)
+            .ok()
+            .and_then(|v| v.get("state").and_then(Value::as_str).map(str::to_string))
+            .unwrap_or_default();
+        if state != "device" {
+            emit_unlocking(&handle, &state);
+            return p;
+        }
+        if start.elapsed() > DEVICE_WAIT {
+            let _ = modules().signer_manager_module.cancel_unlock(&handle);
+            emit_unlocking(&handle, "failed");
+            return err("the device did not answer in time; the unlock was stopped");
+        }
+    }
+}
+
 impl EvmSignerCliModuleImpl {
     /// `approve` with the secret typed, `confirm` with none. Each check refuses before a secret is used.
     fn decide(&self, handle: String, bundle_id: String, secret: Option<String>) -> String {
@@ -405,6 +492,81 @@ impl EvmSignerCliModule for EvmSignerCliModuleImpl {
             self.inner.reconcile();
         }
         self.status_json()
+    }
+
+    fn choose_signer(&self, handle: String, bundle_id: String, signer: String) -> String {
+        relay(modules().signer_manager_module.choose_signer_with_timeout(handle.trim(), bundle_id.trim(), signer.trim(), CALL_TIMEOUT))
+    }
+
+    fn wallets(&self) -> String {
+        relay(modules().signer_manager_module.wallet_settings_with_timeout(CALL_TIMEOUT))
+    }
+
+    fn unlock_wallet(&self, params_json: String) -> String {
+        let reply = relay_secret(params_json, |p| modules().signer_manager_module.unlock_wallet_with_timeout(p, APPROVE_TIMEOUT));
+        wait_device(reply)
+    }
+
+    fn unlock_progress(&self, handle: String) -> String {
+        relay(modules().signer_manager_module.unlock_progress_with_timeout(handle.trim(), CALL_TIMEOUT))
+    }
+
+    fn cancel_unlock(&self, handle: String) -> bool {
+        modules().signer_manager_module.cancel_unlock(handle.trim()).unwrap_or(false)
+    }
+
+    fn lock_wallets(&self, params_json: String) -> String {
+        relay(modules().signer_manager_module.lock_wallets_with_timeout(&params_json, CALL_TIMEOUT))
+    }
+
+    fn set_rule(&self, params_json: String) -> String {
+        let reply = relay_secret(params_json, |p| modules().signer_manager_module.set_rule_with_timeout(p, APPROVE_TIMEOUT));
+        wait_device(reply)
+    }
+
+    fn change_keys(&self, params_json: String) -> String {
+        let reply = relay_secret(params_json, |p| modules().signer_manager_module.change_keys_with_timeout(p, APPROVE_TIMEOUT));
+        wait_device(reply)
+    }
+
+    fn set_names(&self, params_json: String) -> String {
+        relay(modules().signer_manager_module.set_names_with_timeout(&params_json, CALL_TIMEOUT))
+    }
+
+    fn create_password(&self, params_json: String) -> String {
+        relay_secret(params_json, |p| modules().signer_manager_module.create_password_with_timeout(p, APPROVE_TIMEOUT))
+    }
+
+    fn rename_password(&self, params_json: String) -> String {
+        relay(modules().signer_manager_module.rename_password_with_timeout(&params_json, CALL_TIMEOUT))
+    }
+
+    fn change_password(&self, params_json: String) -> String {
+        relay_secret(params_json, |p| modules().signer_manager_module.change_password_with_timeout(p, APPROVE_TIMEOUT))
+    }
+
+    fn remove_password(&self, params_json: String) -> String {
+        relay(modules().signer_manager_module.remove_password_with_timeout(&params_json, CALL_TIMEOUT))
+    }
+
+    fn opens(&self) -> String {
+        relay(modules().signer_manager_module.access_requests_with_timeout(CALL_TIMEOUT))
+    }
+
+    fn show_open(&self, handle: String) -> String {
+        relay(modules().signer_manager_module.acknowledge_access_with_timeout(handle.trim(), CALL_TIMEOUT))
+    }
+
+    fn approve_open(&self, handle: String, bundle_id: String, group: String) -> String {
+        let mut p = json!({ "handle": handle.trim(), "bundle_id": normalise_bundle_id(&bundle_id) });
+        if !group.trim().is_empty() {
+            p["group"] = json!(group.trim());
+        }
+        relay(modules().signer_manager_module.approve_access_with_timeout(&p.to_string(), CALL_TIMEOUT))
+    }
+
+    fn reject_open(&self, handle: String) -> bool {
+        modules().signer_manager_module.reject_access(handle.trim()).unwrap_or(false)
     }
 }
 
