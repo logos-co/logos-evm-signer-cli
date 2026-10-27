@@ -133,9 +133,7 @@ fn named(mut r: Rendered) -> Rendered {
     }
     let Ok(list) = modules().package_manager.get_installed_packages_with_timeout(NAME_TIMEOUT) else { return r };
     let installed: Vec<(String, String)> = list
-        .as_array()
-        .into_iter()
-        .flatten()
+        .iter()
         .map(|p| {
             let field = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
             (field("name"), field("displayName"))
