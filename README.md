@@ -147,6 +147,37 @@ the [logos-eth-wallet-backend README](https://github.com/logos-co/logos-eth-wall
 | `reject(handle)` | the human said no; `bool` |
 | `unattended()` | what was signed without being shown, inside an unlock the person granted that way: `{ok, signed: [{handle, requester, account, ageMs}]}` |
 | `refresh()` | re-read the queue now, then answer as `status` does |
+| `choose_signer(handle, bundle_id, signer)` | pick the signer of a request whose account several hold |
+
+### Wallets and opens
+
+Each wallet is unlocked once per session, by the rule it has, before any module can read its
+data; an app's open is the approver's consent, given once its wallet is unlocked. These relay the
+signer manager's approver calls ([logos.wallets/1](https://github.com/logos-co/logos-signer-interface/blob/main/docs/wallets.md)).
+Every secret goes in a JSON file (`@file`), wiped once sent.
+
+| Method | Does |
+|---|---|
+| `wallets()` | the manager's `wallet_settings()`: names, holders, ways in, the passwords' names |
+| `unlock_wallet(params)` | `{ seed, way, holder?, secret?, passwords? }`; waits while the holder works (a PIN session, a confirmation on the Shell, up to two minutes) and answers its last step: `done`, `needs_password` (call again with `{ handle, passwords }`) or `failed` |
+| `unlock_progress(handle)` / `cancel_unlock(handle)` | a device step, as it stands / stopped |
+| `lock_wallets(params)` | `{ seeds? }`, every wallet for `{}` |
+| `set_rule(params)` | `{ seed, ways: [["device"], ["password:<id>"]], holder?, secret?, passwords? }` |
+| `change_keys(params)` | `{ seed, newIndex?, holder?, secret?, passwords? }` |
+| `set_names(params)` | `{ seed, name?, privateName? }` |
+| `create_password(params)` / `rename_password` / `change_password` / `remove_password` | `{ name, password }` → `{ id }` / `{ id, name }` / `{ id, old, new }` / `{ id }` |
+| `opens()` | apps' opens waiting: `{ requests: [{ handle, requester, kind, state, ageMs, seed }] }` |
+| `show_open(handle)` | claim one: `{ handle, requester, bundle_id, lines, asked, seed }` |
+| `approve_open(handle, bundle_id, group)` | consent to the open on screen, `group` the wallet picked when the open let the person choose, else `str:`; `code: locked` until its wallet is unlocked |
+| `reject_open(handle)` | the human said no |
+
+```
+logosctl call evm_signer_cli wallets
+logosctl call evm_signer_cli unlock_wallet @/run/user/501/unlock.json   # {"seed":"s_…","way":"w_…","secret":"<pin>"}
+logosctl call evm_signer_cli opens
+logosctl call evm_signer_cli show_open sma_…
+logosctl call evm_signer_cli approve_open sma_… 8c1e… str:
+```
 
 The `signer:` line says who signs and what approving takes. An account the keys app unlocked
 for the requesting app, with confirmation, reads `this account is unlocked: no password`, and
@@ -166,6 +197,7 @@ approver causes signatures to exist and never receives them.
 | `prompt(handle, text)` | a request is on screen; `text` is the whole block above |
 | `settled(handle, state)` | `approved` / `rejected` / `cancelled`, relayed from the manager; `gone` a poll after a request vanished unannounced — the manager never announces one that expired unclaimed |
 | `queue_changed(count)` | how many are waiting |
+| `unlocking(handle, state)` | an unlock's holder step: `device`, `needs_password`, `done`, `failed` |
 
 `evm_signer_cli` claims the head of the queue the moment it is offered, as `evm_signer_ui` does:
 claiming means "this approver has it on screen", not "the human decided", and an
