@@ -155,8 +155,9 @@ sections:
       - title: "evm_signer_cli is not an approver yet either"
         text: |
           Until something calls `configure`, the manager's built-in defaults stand:
-          `evm_signer_ui` approves, `evm_keystore_ui` opens and unlocks, `keystore_module`
-          signs. `status` says so, and names the exact command that fixes it — built from the
+          `evm_signer_ui` approves, `evm_keystore_ui` opens and unlocks, and the keystore, the
+          Keycard Shell, the Keycard and QR wallets sign. `status` says so, and names the exact
+          command that fixes it — built from the
           names currently in force, because `configure` is **total**: a document that names
           only `evm_signer_cli` would strip `evm_signer_ui` and leave nothing to sign with.
         run: "./logos/bin/logosctl --config-dir ./session call evm_signer_cli status --human"
@@ -164,7 +165,7 @@ sections:
         expect_contains:
           - '"held":false'
           - "logosctl call signer_manager_module configure"
-          - '\"signers\":[\"keystore_module\"]'
+          - '\"signers\":[\"keystore_module\",\"keycard_shell_module\",\"keycard_module\",\"qr_signer_module\"]'
 
   - title: "Name the roles"
     step: true
