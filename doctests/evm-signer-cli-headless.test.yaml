@@ -62,11 +62,11 @@ sections:
       `capability_module` that handles the load-time handshake.
     steps:
       - title: "Build keystore_module"
-        run: 'nix build "github:logos-co/logos-evm-keystore-module/443137f3adae0c306449837fc2b59cbeb8bc2518#install" --out-link ./result-keystore'
+        run: 'nix build "github:logos-co/logos-evm-keystore-module/e83a899a1718ed52e3173dc85d06b15b9c68f41a#install" --out-link ./result-keystore'
         code_block: "nix build 'github:logos-co/logos-evm-keystore-module#install' --out-link ./result-keystore"
         check_file: "result-keystore/modules/keystore_module/manifest.json"
       - title: "Build signer_manager_module"
-        run: 'nix build "github:logos-co/logos-signer-manager-module/9be21c3aeaa68ba915d36bfb67b5ed563585b9b7#install" --out-link ./result-manager'
+        run: 'nix build "github:logos-co/logos-signer-manager-module/bd5c84d21ced71246c4bf44d137aa1c597496fb0#install" --out-link ./result-manager'
         code_block: "nix build 'github:logos-co/logos-signer-manager-module#install' --out-link ./result-manager"
         check_file: "result-manager/modules/signer_manager_module/manifest.json"
       - title: "Build evm_signer_cli"
