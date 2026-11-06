@@ -229,16 +229,12 @@ sections:
           itself: the calldata of section 2, decoded offline against a vendored ABI database
           and labelled with how sure it is. The last two lines are the commands to type.
 
-          Section 1's heading is the requester's installed name, then the exact id the manager
-          gave. The name is the fixture's `display_name`, read from `package_manager`, which
-          `logosctl` loads at boot, and never from the request. Without a package manager, or
-          with a name that is not short plain ASCII or that another package wears too, the id
-          stands alone.
+          Section 1's heading is the exact id the manager gave, never a name from the request.
         run: "cat watch.jsonl"
         code_block: "# the watcher's terminal"
         expect_contains:
           - '"event":"prompt"'
-          - "1.  Requested by: Signer CLI Probe (evm_signer_cli_probe)"
+          - "1.  Requested by: evm_signer_cli_probe"
           - "claimed by the requester"
           - "2.  What you are signing"
           - "Commitment:"

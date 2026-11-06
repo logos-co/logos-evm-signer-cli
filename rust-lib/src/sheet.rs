@@ -1,46 +1,8 @@
-//! What this signer works out for the prompt from what it is shown: who asked, by the name the
-//! user's installed package gives it, and a Bitcoin request's figures added up. The rules are
-//! `evm_signer_ui`'s (src/sheet_lines.cpp), so the two surfaces read a request alike.
+//! What this signer works out for the prompt from what it is shown: a Bitcoin request's figures
+//! added up. The rules are `evm_signer_ui`'s (src/sheet_lines.cpp), so the two surfaces read a
+//! request alike.
 
 use std::collections::BTreeSet;
-
-/// Short and plain, so a name cannot carry a second id in brackets, a look-alike letter or a
-/// direction mark: an ASCII letter first, then letters, digits, single spaces and `- . '` only.
-fn plain_name(s: &str) -> bool {
-    let b = s.as_bytes();
-    if b.is_empty() || b.len() > 40 || !b[0].is_ascii_alphabetic() || b[b.len() - 1] == b' ' {
-        return false;
-    }
-    b.iter().enumerate().all(|(i, &c)| {
-        c.is_ascii_alphanumeric() || matches!(c, b'-' | b'.' | b'\'') || (c == b' ' && b[i - 1] != b' ')
-    })
-}
-
-/// What two names have to differ in to be told apart at a glance: letters and digits, any case.
-fn folded(s: &str) -> String {
-    s.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_lowercase()).collect()
-}
-
-/// The name the user's installed package gives `module`, or `None` when there is none to trust:
-/// no name, one that is not short plain ASCII, or one another installed package wears too.
-/// `installed` is every installed package as (name, displayName).
-pub fn installed_name(module: &str, installed: &[(String, String)]) -> Option<String> {
-    let mut names = installed
-        .iter()
-        .filter(|(name, display)| name == module && !display.is_empty())
-        .map(|(_, display)| display.as_str())
-        .collect::<BTreeSet<_>>()
-        .into_iter();
-    // Two copies that disagree give neither name.
-    let (Some(name), None) = (names.next(), names.next()) else { return None };
-    if !plain_name(name) || name == module {
-        return None;
-    }
-    if installed.iter().any(|(other, display)| other != module && folded(display) == folded(name)) {
-        return None;
-    }
-    Some(name.to_string())
-}
 
 const COIN: u64 = 100_000_000;
 const MAX_SATS: u64 = 21_000_000 * COIN;
@@ -353,57 +315,5 @@ mod tests {
         ]);
         assert!(bitcoin_reading(&message).is_empty());
         assert!(bitcoin_reading(&[]).is_empty());
-    }
-
-    fn installed() -> Vec<(String, String)> {
-        [
-            ("bitcoin_wallet_core_module", "Bitcoin Wallet Core"),
-            ("bitcoin_wallet_ui", "Bitcoin Wallet"),
-            ("signer_manager_module", ""),
-            ("evm_signer_ui", "Signer"),
-        ]
-        .iter()
-        .map(|(n, d)| (n.to_string(), d.to_string()))
-        .collect()
-    }
-
-    fn named(display: &str) -> Option<String> {
-        installed_name("some_module", &[("some_module".into(), display.into())])
-    }
-
-    #[test]
-    fn the_name_is_the_installed_packages_own() {
-        assert_eq!(installed_name("bitcoin_wallet_core_module", &installed()).as_deref(), Some("Bitcoin Wallet Core"));
-        // A module nothing installed names, and a package with no name.
-        assert_eq!(installed_name("signer_probe", &installed()), None);
-        assert_eq!(installed_name("signer_manager_module", &installed()), None);
-    }
-
-    #[test]
-    fn a_name_that_is_not_short_plain_ascii_is_dropped() {
-        assert_eq!(named("Bitcoin Wallet (bitcoin_wallet_core_module)"), None);
-        assert_eq!(named("Bitcoin \u{202E}Wallet"), None);
-        assert_eq!(named("Bitc\u{043E}in Wallet"), None);
-        assert_eq!(named("Bitcoin\nWallet"), None);
-        assert_eq!(named("A name that goes on and on past forty chars"), None);
-        assert_eq!(named("some_module"), None);
-        assert_eq!(named("Bob's Wallet 2.0").as_deref(), Some("Bob's Wallet 2.0"));
-    }
-
-    #[test]
-    fn a_name_another_package_also_wears_names_neither() {
-        let mut with_impostor = installed();
-        with_impostor.push(("evil_module".into(), "bitcoin wallet-core.".into()));
-        assert_eq!(installed_name("bitcoin_wallet_core_module", &with_impostor), None);
-        assert_eq!(installed_name("evil_module", &with_impostor), None);
-    }
-
-    #[test]
-    fn two_copies_keep_the_name_only_if_they_agree() {
-        let copies = |a: &str, b: &str| {
-            installed_name("some_module", &[("some_module".into(), a.into()), ("some_module".into(), b.into())])
-        };
-        assert_eq!(copies("Wallet", "Wallet Two"), None);
-        assert_eq!(copies("Wallet", "Wallet").as_deref(), Some("Wallet"));
     }
 }

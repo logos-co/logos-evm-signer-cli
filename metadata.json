@@ -1,6 +1,6 @@
 {
   "name": "evm_signer_cli",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Headless approver for signer_manager_module: shows what a module asked to sign, in the manager's own words, over `logosctl watch`, and takes the decision over `logosctl call`.",
   "author": "Logos Core Team",
   "type": "core",
@@ -12,8 +12,7 @@
     { "name": "signer_manager_module", "version": "~0.2.0" }
   ],
   "optional_dependencies": [
-    { "name": "token_list_module", "version": "~0.2.0" },
-    { "name": "package_manager" }
+    { "name": "token_list_module", "version": "~0.2.0" }
   ],
   "include": [],
   "capabilities": [],
