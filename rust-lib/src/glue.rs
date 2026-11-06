@@ -6,7 +6,6 @@
 
 use crate::decoder::interpret;
 use crate::prompt::{configure_hint, holds, normalise_bundle_id, render, scrub, strip_file_newline, Rendered};
-use crate::sheet::installed_name;
 use serde_json::{json, Value};
 use std::time::Duration;
 
@@ -15,8 +14,6 @@ const POLL: Duration = Duration::from_secs(1);
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 /// The keystore's scrypt runs inside the manager's `approve`; the deadline sits well above it.
 const APPROVE_TIMEOUT: Duration = Duration::from_secs(60);
-/// package_manager answers in milliseconds; an absent one costs the name and this whole bound.
-const NAME_TIMEOUT: Duration = Duration::from_millis(500);
 /// How long an unlock waits on its holder: a PIN session, a confirmation on the Shell.
 const DEVICE_WAIT: Duration = Duration::from_secs(120);
 
@@ -158,7 +155,6 @@ fn claim(handle: &str) -> Result<Rendered, String> {
         handle: field("handle"),
         bundle_id: field("bundle_id"),
         requester: field("requester"),
-        requester_name: String::new(),
         claim_lines: strings(&v, "claim_lines"),
         interpretation_lines: interpret(&render_lines),
         render_lines,
@@ -166,24 +162,6 @@ fn claim(handle: &str) -> Result<Rendered, String> {
         collects: field("collects"),
         unlocked: v.get("unlocked").and_then(Value::as_bool).unwrap_or(false),
     })
-}
-
-/// `r` with what the user's installed package calls its requester, asked of package_manager
-/// (optional): never the request's own word. Only a prompt about to be shown asks.
-fn named(mut r: Rendered) -> Rendered {
-    if r.requester.is_empty() {
-        return r;
-    }
-    let Ok(list) = modules().package_manager.get_installed_packages_with_timeout(NAME_TIMEOUT) else { return r };
-    let installed: Vec<(String, String)> = list
-        .iter()
-        .map(|p| {
-            let field = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
-            (field("name"), field("displayName"))
-        })
-        .collect();
-    r.requester_name = installed_name(&r.requester, &installed).unwrap_or_default();
-    r
 }
 
 fn handle_of(summary: &Value) -> Option<&str> {
@@ -234,7 +212,7 @@ impl Inner {
             emit_settled(&h, "gone");
         }
         if let Some(h) = pick {
-            match claim(&h).map(named) {
+            match claim(&h) {
                 Ok(r) => self.put_on_screen(r),
                 Err(e) => self.lock_state().last_error = Some(e),
             }
@@ -411,7 +389,7 @@ impl EvmSignerCliModuleImpl {
             "custodians": id.get("custodians").cloned().unwrap_or(json!([])),
             "rendered": st.rendered.as_ref().map(|r| json!({
                 "handle": r.handle, "bundle_id": r.bundle_id, "requester": r.requester,
-                "requester_name": r.requester_name, "signer": r.signer, "collects": r.collects, "unlocked": r.unlocked,
+                "signer": r.signer, "collects": r.collects, "unlocked": r.unlocked,
             })),
             "pending_count": st.queue.len(),
             "last_error": st.last_error.as_deref().filter(|e| !(held && *e == "not authorized")),
@@ -443,12 +421,12 @@ impl EvmSignerCliModule for EvmSignerCliModuleImpl {
 
     fn show(&self, handle: String) -> String {
         let _lane = self.inner.lane.lock().unwrap_or_else(|p| p.into_inner());
-        match claim(handle.trim()).map(named) {
+        match claim(handle.trim()) {
             Ok(r) => {
                 let text = render(&r);
                 let reply = json!({
                     "ok": true, "handle": r.handle, "bundle_id": r.bundle_id, "requester": r.requester,
-                    "requester_name": r.requester_name, "claim_lines": r.claim_lines, "render_lines": r.render_lines,
+                    "claim_lines": r.claim_lines, "render_lines": r.render_lines,
                     "interpretation_lines": r.interpretation_lines, "text": text,
                 });
                 self.inner.put_on_screen(r);
