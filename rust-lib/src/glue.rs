@@ -27,13 +27,13 @@ pub trait EvmSignerCliModule: Send + Sync + 'static {
     fn show(&self, handle: String) -> String;
     /// The human said yes to the request on screen. `bundle_id` must be the value shown.
     fn approve(&self, handle: String, bundle_id: String, password: String) -> String;
-    /// Yes, with no secret: the account is unlocked for this request, or its device asks the
-    /// person itself. `{ ok, handle, signed_count }`, or `{ ok, handle, state: "signing" }`.
+    /// Yes, with no secret: an allowance covers this request, or its device asks the person
+    /// itself. `{ ok, handle, signed_count }`, or `{ ok, handle, state: "signing" }`.
     fn confirm(&self, handle: String, bundle_id: String) -> String;
     /// The human said no.
     fn reject(&self, handle: String) -> bool;
-    /// What was signed without being shown, inside an unlock the person granted that way:
-    /// `{ ok, signed: [{ handle, requester, account, ageMs }] }`.
+    /// What allowances signed, and what a person signed past one with the password:
+    /// `{ ok, signed: [{ handle, requester, account, ageMs, how, allowance, reason }] }`.
     fn unattended(&self) -> String;
     /// Re-read the queue now, then answer as `status` does.
     fn refresh(&self) -> String;
@@ -66,10 +66,26 @@ pub trait EvmSignerCliModule: Send + Sync + 'static {
     /// `{ id }`.
     fn remove_password(&self, params_json: String) -> String;
 
-    // ── opens: an app asks to open a wallet, the approver consents ───────────────────
-    /// Opens waiting: `{ ok, requests: [{ handle, requester, kind, state, ageMs, seed }] }`.
+    // ── allowances: what an app may have signed without the password ─────────────────
+    /// `{ ok, allowances: [{ id, version, account, callers, scope, review, endsAtRestart, limits,
+    /// lines, state, used }], locked, unreadable }`.
+    fn allowances(&self) -> String;
+    /// A person's grant, from a file so the password stays off the command line: `{ account,
+    /// password, callers: [{ module, for? }], scope, limits?, review?, endsAtRestart?, replaces? }`.
+    fn grant_allowance(&self, params_json: String) -> String;
+    /// End one, with no password: `{ ok, kept }`.
+    fn revoke_allowance(&self, id: String) -> String;
+    /// Start an account's allowances again after a restart, from a file: `{ account, password }`.
+    fn resume_allowances(&self, params_json: String) -> String;
+    /// Answer an app's own request on screen, from a file: `{ handle, bundle_id, password,
+    /// allowance?: { limits, review, endsAtRestart } }`. It can narrow what was asked, not widen it.
+    fn approve_allowance(&self, params_json: String) -> String;
+
+    // ── opens and allowance requests: an app asks, the approver decides ──────────────
+    /// What apps are asking: `{ ok, requests: [{ handle, requester, kind, state, ageMs, seed }] }`,
+    /// `kind` being `open` or `allowance`.
     fn opens(&self) -> String;
-    /// Claim one for display: `{ ok, handle, requester, bundle_id, lines, asked, seed }`.
+    /// Claim one for display: `{ ok, handle, requester, kind, bundle_id, lines, asked, seed }`.
     fn show_open(&self, handle: String) -> String;
     /// Consent to the open on screen; its wallet must be unlocked (`code: locked` until then).
     /// `group` names the wallet for an open that let the person pick, else empty.
@@ -161,6 +177,7 @@ fn claim(handle: &str) -> Result<Rendered, String> {
         signer: field("signer"),
         collects: field("collects"),
         unlocked: v.get("unlocked").and_then(Value::as_bool).unwrap_or(false),
+        outside: v.get("outside").and_then(Value::as_str).map(str::to_string),
     })
 }
 
@@ -352,7 +369,7 @@ impl EvmSignerCliModuleImpl {
             return refuse(&mut password, "bundle_id does not match the request on screen");
         }
         if !given && !fresh.needs_no_secret() {
-            return refuse(&mut password, "this account is not unlocked for this request: approve it with its password");
+            return refuse(&mut password, "no allowance covers this request: approve it with its password");
         }
 
         let out = modules().signer_manager_module.approve_with_timeout(
@@ -389,7 +406,7 @@ impl EvmSignerCliModuleImpl {
             "custodians": id.get("custodians").cloned().unwrap_or(json!([])),
             "rendered": st.rendered.as_ref().map(|r| json!({
                 "handle": r.handle, "bundle_id": r.bundle_id, "requester": r.requester,
-                "signer": r.signer, "collects": r.collects, "unlocked": r.unlocked,
+                "signer": r.signer, "collects": r.collects, "unlocked": r.unlocked, "outside": r.outside,
             })),
             "pending_count": st.queue.len(),
             "last_error": st.last_error.as_deref().filter(|e| !(held && *e == "not authorized")),
@@ -523,6 +540,27 @@ impl EvmSignerCliModule for EvmSignerCliModuleImpl {
 
     fn remove_password(&self, params_json: String) -> String {
         relay(modules().signer_manager_module.remove_password_with_timeout(&params_json, CALL_TIMEOUT))
+    }
+
+    fn allowances(&self) -> String {
+        relay(modules().signer_manager_module.allowances_with_timeout(CALL_TIMEOUT))
+    }
+
+    fn grant_allowance(&self, params_json: String) -> String {
+        relay_secret(params_json, |p| modules().signer_manager_module.grant_allowance_with_timeout(p, APPROVE_TIMEOUT))
+    }
+
+    fn revoke_allowance(&self, id: String) -> String {
+        let p = json!({ "id": id.trim() }).to_string();
+        relay(modules().signer_manager_module.revoke_allowance_with_timeout(&p, CALL_TIMEOUT))
+    }
+
+    fn resume_allowances(&self, params_json: String) -> String {
+        relay_secret(params_json, |p| modules().signer_manager_module.resume_allowances_with_timeout(p, APPROVE_TIMEOUT))
+    }
+
+    fn approve_allowance(&self, params_json: String) -> String {
+        relay_secret(params_json, |p| modules().signer_manager_module.approve_access_with_timeout(p, APPROVE_TIMEOUT))
     }
 
     fn opens(&self) -> String {

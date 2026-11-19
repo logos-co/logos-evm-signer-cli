@@ -3,9 +3,9 @@
 
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder";
-    # Pinned to the manager's first branch until it reaches main.
+    # Pinned to the allowances branch until it reaches main.
     signer_manager_module = {
-      url = "github:logos-co/logos-signer-manager-module/bd5c84d21ced71246c4bf44d137aa1c597496fb0";
+      url = "github:logos-co/logos-signer-manager-module/b71f9dec8cc01efc41e58b9f58ed327883b48cd0";
       inputs.logos-module-builder.follows = "logos-module-builder";
     };
     # OPTIONAL. Named so the generated client exists; never loaded on its account, and

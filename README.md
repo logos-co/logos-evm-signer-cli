@@ -136,11 +136,46 @@ the [logos-eth-wallet-backend README](https://github.com/logos-co/logos-eth-wall
 | `list()` | the manager's queue summaries — never leg detail |
 | `show(handle)` | claim `handle` for display: the manager's lines, verbatim, this signer's `interpretation_lines`, plus the prompt text |
 | `approve(handle, bundle_id, password)` | the human said yes to the request on screen; `{ok, handle, signed_count}` |
-| `confirm(handle, bundle_id)` | yes, with no secret: the account is unlocked for this request, or its device asks the person itself; `{ok, handle, signed_count}`, or `{ok, handle, state: "signing"}` while a device works |
+| `confirm(handle, bundle_id)` | yes, with no secret: an allowance covers this request, or its device asks the person itself; `{ok, handle, signed_count}`, or `{ok, handle, state: "signing"}` while a device works |
 | `reject(handle)` | the human said no; `bool` |
-| `unattended()` | what was signed without being shown, inside an unlock the person granted that way: `{ok, signed: [{handle, requester, account, ageMs}]}` |
+| `unattended()` | what allowances signed, and what a person signed past one with the password: `{ok, signed: [{handle, requester, account, ageMs, how, allowance, reason}]}` |
 | `refresh()` | re-read the queue now, then answer as `status` does |
 | `choose_signer(handle, bundle_id, signer)` | pick the signer of a request whose account several hold |
+
+### Allowances
+
+An allowance lets a named app have an account sign without its password, on the limits a person
+sets. It only ever removes a prompt: what falls outside one comes here as any request does. Grants
+carry the wallet's password, so they are read from a file.
+
+| Method | Does |
+|---|---|
+| `allowances()` | every allowance, with what it has used and whether it is `active`, `waiting` for the password after a restart, or `ended` |
+| `grant_allowance(params)` | `{ account, password, callers: [{ module, for? }], scope, limits?, review?, endsAtRestart?, replaces? }` |
+| `revoke_allowance(id)` | end one, with no password |
+| `resume_allowances(params)` | `{ account, password }`: start an account's allowances again after a restart |
+| `approve_allowance(params)` | answer an app's own request on screen: `{ handle, bundle_id, password, allowance? }`; `opens` lists the requests, `show_open` claims one and `reject_open` refuses it |
+
+```bash
+echo '{"account":"g_…","password":"…","callers":[{"module":"bitcoin_wallet_core_module","for":"maker"}],
+       "scope":{"kind":"spend","network":"mainnet"},"limits":{"perRequest":"100000","total":"1000000"}}' > grant.json
+logosctl call evm_signer_cli grant_allowance @grant.json
+```
+
+`scope` is one of:
+
+- `{ "kind": "spend", "network": … }`: Bitcoin leaving the wallet.
+- `{ "kind": "messages", "prefix"?: … }`: EIP-191 messages, any or those starting with `prefix`.
+- `{ "kind": "typed_data", "contract"?, "name"?, "chainId"?, "primaryType"? }`: EIP-712 typed
+  data, never a permit.
+- `{ "kind": "calls", "chainId": 1, "contracts"?: [...], "methods"?: [...] }`: contract calls on one
+  chain, never a token transfer or approval, a deployment, or a call that sends ETH. Methods are
+  selectors (`0xa9059cbb`) or signatures (`stake(uint256)`).
+- `{ "kind": "all" }` with `"review": true`: every request, each confirmed here with no password.
+
+`limits` takes `perRequest`, `total`, `perPeriod: { amount, ms }`, `count`, `expiresAtMs`,
+`destinations` and `maxFee`. Amounts are sats as decimal strings and apply to `spend`; `maxFee` is
+wei for `calls`. One left out doesn't limit.
 
 ### Wallets and opens
 
@@ -172,9 +207,9 @@ logosctl call evm_signer_cli show_open sma_…
 logosctl call evm_signer_cli approve_open sma_… 8c1e… str:
 ```
 
-The `signer:` line says who signs and what approving takes. An account the keys app unlocked
-for the requesting app, with confirmation, reads `this account is unlocked: no password`, and
-its approve line is `confirm`. A device that asks the person itself reads `confirm on the device
+The `signer:` line says who signs and what approving takes. A request a reviewed allowance
+covers reads `an allowance covers this: no password`, and its approve line is `confirm`. A request
+an allowance came close to covering adds an `outside:` line saying why it didn't. A device that asks the person itself reads `confirm on the device
 when it asks`. `confirm` is refused before anything is signed when neither holds.
 
 `approve` binds three things and refuses before the password is used if any is off: the
@@ -223,8 +258,8 @@ not in `0.3.0-rc.1` or earlier. Nothing this module returns is secret either way
 
 ## What is deliberately absent
 
-- **No unattended approval.** Every `approve` names the handle and the bundle id a human
-  read. Automated tests use the `approver_probe` fixture in `logos-eth-wallet-backend`.
+- **No approving by itself.** Every `approve` names the handle and the bundle id a human
+  read; what signs unattended is an allowance a person granted. Automated tests use the `approver_probe` fixture in `logos-eth-wallet-backend`.
 - **No signatures here.** Only the requester can collect them, with its receipt.
 - **No self-enrolment.** `configure` is ungated and total; a module naming itself would be
   the exposure the manager's spec defers, and two doing so would race. The operator names
