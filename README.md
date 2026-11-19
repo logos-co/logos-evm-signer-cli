@@ -162,10 +162,20 @@ echo '{"account":"g_…","password":"…","callers":[{"module":"bitcoin_wallet_c
 logosctl call evm_signer_cli grant_allowance @grant.json
 ```
 
-`scope` is `{ "kind": "spend", "network": … }` for Bitcoin leaving the wallet, or `{ "kind": "all" }`
-with `"review": true` for every request, each confirmed here with no password. `limits` takes
-`perRequest`, `total`, `perPeriod: { amount, ms }`, `count`, `expiresAtMs`, `destinations` and
-`maxFee`, amounts in sats as decimal strings. One left out doesn't limit.
+`scope` is one of:
+
+- `{ "kind": "spend", "network": … }`: Bitcoin leaving the wallet.
+- `{ "kind": "messages", "prefix"?: … }`: EIP-191 messages, any or those starting with `prefix`.
+- `{ "kind": "typed_data", "contract"?, "name"?, "chainId"?, "primaryType"? }`: EIP-712 typed
+  data, never a permit.
+- `{ "kind": "calls", "chainId": 1, "contracts"?: [...], "methods"?: [...] }`: contract calls on one
+  chain, never a token transfer or approval, a deployment, or a call that sends ETH. Methods are
+  selectors (`0xa9059cbb`) or signatures (`stake(uint256)`).
+- `{ "kind": "all" }` with `"review": true`: every request, each confirmed here with no password.
+
+`limits` takes `perRequest`, `total`, `perPeriod: { amount, ms }`, `count`, `expiresAtMs`,
+`destinations` and `maxFee`. Amounts are sats as decimal strings and apply to `spend`; `maxFee` is
+wei for `calls`. One left out doesn't limit.
 
 ### Wallets and opens
 
