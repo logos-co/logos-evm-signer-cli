@@ -2287,17 +2287,17 @@
         "logos-signer-interface": "logos-signer-interface_4"
       },
       "locked": {
-        "lastModified": 1795052407,
-        "narHash": "sha256-RdQS8BZV+qAQUcY3F/3sCyXFUIzuQLgj9yKqpDyNMs8=",
+        "lastModified": 1795091364,
+        "narHash": "sha256-fd51OP/ELGUA7luJiKEOCjDfCX0lXhkPXP5QDY1ez88=",
         "owner": "logos-co",
         "repo": "logos-signer-manager-module",
-        "rev": "471fb75e7f4fab96e798c5945998af1f68f2863d",
+        "rev": "b71f9dec8cc01efc41e58b9f58ed327883b48cd0",
         "type": "github"
       },
       "original": {
         "owner": "logos-co",
         "repo": "logos-signer-manager-module",
-        "rev": "471fb75e7f4fab96e798c5945998af1f68f2863d",
+        "rev": "b71f9dec8cc01efc41e58b9f58ed327883b48cd0",
         "type": "github"
       }
     },
