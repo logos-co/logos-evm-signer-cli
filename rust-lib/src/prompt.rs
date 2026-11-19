@@ -17,12 +17,14 @@ pub struct Rendered {
     /// The module that signs, and what it asks for: `password`, `pin` or `nothing` (a device).
     pub signer: String,
     pub collects: String,
-    /// An unlock covers this request, so it is approved without a secret.
+    /// An allowance covers this request, so it is approved without a secret.
     pub unlocked: bool,
+    /// Why an allowance that came close doesn't cover it, in the manager's words.
+    pub outside: Option<String>,
 }
 
 impl Rendered {
-    /// Approved with `confirm`, no secret: inside an unlock, or on a device that asks itself.
+    /// Approved with `confirm`, no secret: inside an allowance, or on a device that asks itself.
     pub fn needs_no_secret(&self) -> bool {
         self.unlocked || self.collects == "nothing"
     }
@@ -78,12 +80,15 @@ pub fn render(r: &Rendered) -> String {
     out.push(THIN.into());
     if !r.signer.is_empty() {
         let how = match (r.unlocked, r.collects.as_str()) {
-            (true, _) => "this account is unlocked: no password",
+            (true, _) => "an allowance covers this: no password",
             (false, "nothing") => "confirm on the device when it asks",
             (false, "pin") => "asks for the card's PIN",
             _ => "asks for the account's password",
         };
         out.push(format!("signer:   {} — {how}", r.signer));
+    }
+    if let Some(why) = &r.outside {
+        out.extend(why.split('\n').map(|l| format!("outside:  {l}")));
     }
     out.push(match (r.needs_no_secret(), r.collects.as_str()) {
         (true, _) => format!("approve:  logosctl call evm_signer_cli confirm {} {}", r.handle, r.bundle_id),
@@ -177,6 +182,7 @@ mod tests {
             signer: "keystore_module".into(),
             collects: "password".into(),
             unlocked: false,
+            outside: None,
         }
     }
 
@@ -187,7 +193,7 @@ mod tests {
         assert!(text.contains("approve:  logosctl call evm_signer_cli approve smh_abc 8c1e @/path/to/pwfile"));
         let unlocked = Rendered { unlocked: true, ..sample() };
         let text = render(&unlocked);
-        assert!(text.contains("this account is unlocked: no password"), "{text}");
+        assert!(text.contains("an allowance covers this: no password"), "{text}");
         assert!(text.contains("approve:  logosctl call evm_signer_cli confirm smh_abc 8c1e\n"), "{text}");
         let device = Rendered { signer: "ledger_module".into(), collects: "nothing".into(), ..sample() };
         assert!(render(&device).contains("ledger_module — confirm on the device when it asks"));

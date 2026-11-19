@@ -24,17 +24,12 @@ pub trait EvmSignerCliProbeModule: Send + 'static {
     fn outcome(&mut self, handle: String) -> String;
     /// Give up on a request.
     fn cancel(&mut self, handle: String) -> bool;
-    /// Unlock the test account for this fixture's own requests, as the manager's custodian (the
-    /// keys app's role): `count` signatures, each confirmed or none of them shown.
-    fn unlock(&mut self, count: i64, confirm: bool) -> String;
     /// Import the test phrase as a regtest native segwit wallet, as the keystore's custodian.
     /// `{ ok, group }`.
     fn setup_bitcoin(&mut self) -> String;
     /// Ask the manager to sign a PSBT spending the wallet's first coin: 60,000 sats out, 39,000
     /// back as change, 1,000 fee. Built offline from the wallet's xpub. `{ ok, handle }`.
     fn request_psbt(&mut self) -> String;
-    /// Unlock the Bitcoin wallet for this fixture's own requests, as `unlock` does the account.
-    fn unlock_bitcoin(&mut self, count: i64, confirm: bool) -> String;
     fn on_context_ready(&mut self, _ctx: &RustModuleContext) {}
 }
 
@@ -183,15 +178,6 @@ impl EvmSignerCliProbeModule for EvmSignerCliProbeModuleImpl {
         modules().signer_manager_module.cancel_approval(&handle, &receipt).unwrap_or(false)
     }
 
-    fn unlock(&mut self, count: i64, confirm: bool) -> String {
-        let terms = json!({ "account": ADDRESS, "password": VAULT_PASSWORD, "count": count,
-                            "apps": ["evm_signer_cli_probe"], "confirm": confirm });
-        match parse(modules().signer_manager_module.unlock(&terms.to_string())) {
-            Ok(v) => v.to_string(),
-            Err(e) => err(format!("unlock refused: {e}")),
-        }
-    }
-
     fn setup_bitcoin(&mut self) -> String {
         let p = json!({ "phrase": PHRASE, "family": "bitcoin", "chain": "test", "password": BTC_PASSWORD,
                         "label": "Regtest wallet" });
@@ -225,18 +211,6 @@ impl EvmSignerCliProbeModule for EvmSignerCliProbeModuleImpl {
                 json!({ "ok": true, "handle": handle }).to_string()
             }
             Err(e) => err(format!("request_approval refused: {e}")),
-        }
-    }
-
-    fn unlock_bitcoin(&mut self, count: i64, confirm: bool) -> String {
-        let Some((group, _, _)) = self.bitcoin.lock().unwrap().clone() else {
-            return err("no Bitcoin wallet yet: call setup_bitcoin first");
-        };
-        let terms = json!({ "account": group, "password": BTC_PASSWORD, "count": count,
-                            "apps": ["evm_signer_cli_probe"], "confirm": confirm });
-        match parse(modules().signer_manager_module.unlock(&terms.to_string())) {
-            Ok(v) => v.to_string(),
-            Err(e) => err(format!("unlock refused: {e}")),
         }
     }
 }
